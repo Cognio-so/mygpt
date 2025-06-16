@@ -30,4 +30,3 @@ vars = { NODE_ENV = "production" }
 [[r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "ai-agents"
-FILES_BUCKET="ai-agents"
