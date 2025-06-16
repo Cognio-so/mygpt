@@ -1,27 +1,17 @@
 import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { json, redirect } from "@remix-run/cloudflare";
-import { useLoaderData, Form } from "@remix-run/react";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { Button } from "~/components/ui/button";
+import { useLoaderData } from "@remix-run/react";
+import { requireAuth } from "~/lib/auth.server";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { AdminLayout } from "~/components/admin/AdminLayout";
+import { createSupabaseServerClient } from "~/lib/supabase.server";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
-  const { supabase, response } = createSupabaseServerClient(request, env);
-  
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return redirect('/login', {
-      headers: response.headers,
-    });
-  }
+  const { user, response } = await requireAuth(request, env);
 
   return json({
-    user: session.user,
+    user,
   }, {
     headers: response.headers,
   });

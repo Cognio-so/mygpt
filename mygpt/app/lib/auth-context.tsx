@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { useLoaderData, useRevalidator } from '@remix-run/react'
+import { useOutletContext } from '@remix-run/react'
 import type { User } from '@supabase/supabase-js'
-import { createSupabaseClient } from './supabase.client'
+import { getSupabaseClient } from './supabase.client'
 
 type AuthContextType = {
   user: User | null
@@ -10,32 +10,37 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export function AuthProvider({ 
-  children, 
-  serverUser 
-}: { 
-  children: React.ReactNode
-  serverUser: User | null 
-}) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { user: serverUser } = useOutletContext<{ user: User | null }>()
   const [user, setUser] = useState<User | null>(serverUser)
-  const revalidator = useRevalidator()
-  const supabase = createSupabaseClient()
-
+  
   useEffect(() => {
+    const supabase = getSupabaseClient()
+    if (!supabase) return
+
+    // Sync client state with server state
+    setUser(serverUser)
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        revalidator.revalidate()
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
+        window.location.href = '/login'
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        setUser(session.user)
+        window.location.href = '/dashboard'
       }
-      setUser(session?.user ?? null)
     })
 
     return () => subscription.unsubscribe()
-  }, [supabase, revalidator])
+  }, [serverUser])
 
   const signOut = async () => {
-    await supabase.auth.signOut()
+    const supabase = getSupabaseClient()
+    if (supabase) {
+      await supabase.auth.signOut()
+    }
   }
 
   return (

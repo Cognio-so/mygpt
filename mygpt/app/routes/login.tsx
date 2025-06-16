@@ -6,6 +6,8 @@ import { json, redirect } from "@remix-run/cloudflare";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { useCallback } from "react";
 import { createBrowserClient } from "@supabase/auth-helpers-remix";
+import { getOptionalAuth } from "~/lib/auth.server";
+import { getSupabaseClient } from "~/lib/supabase.client";
 
 type ActionData = {
   error?: string;
@@ -78,17 +80,26 @@ export default function Login() {
       return;
     }
     
-    const supabase = createBrowserClient(
-      ENV.SUPABASE_URL,
-      ENV.SUPABASE_API_KEY
-    );
+    const supabase = getSupabaseClient(ENV.SUPABASE_URL, ENV.SUPABASE_API_KEY);
+    if (!supabase) {
+      console.error('Failed to create Supabase client');
+      return;
+    }
     
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        console.error('OAuth sign in error:', error);
+      }
+    } catch (error) {
+      console.error('Unexpected OAuth error:', error);
+    }
   }, [ENV]);
 
   return (

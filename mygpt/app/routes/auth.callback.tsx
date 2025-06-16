@@ -1,74 +1,71 @@
 import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { json, redirect } from "@remix-run/cloudflare";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { useEffect } from "react";
-import { useNavigate, useLoaderData } from "@remix-run/react";
-import { createBrowserClient } from "@supabase/auth-helpers-remix";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get('code');
+  const error = requestUrl.searchParams.get('error');
+  const error_description = requestUrl.searchParams.get('error_description');
+
   const env = context.cloudflare.env;
   const { supabase, response } = createSupabaseServerClient(request, env);
-  
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
 
-  if (session) {
-    return redirect('/dashboard', {
+  // Handle OAuth errors
+  if (error) {
+    console.error('OAuth error:', error, error_description);
+    return redirect(`/login?error=${encodeURIComponent(error_description || error)}`, {
       headers: response.headers,
     });
   }
 
-  return json({
-    ENV: {
-      SUPABASE_URL: env.SUPABASE_URL,
-      SUPABASE_API_KEY: env.SUPABASE_API_KEY,
+  // Exchange code for session
+  if (code) {
+    try {
+      const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      
+      if (exchangeError) {
+        console.error('Error exchanging code for session:', exchangeError);
+        return redirect('/login?error=auth_callback_error', {
+          headers: response.headers,
+        });
+      }
+
+      if (data.session) {
+        // Successfully authenticated, redirect to dashboard
+        return redirect('/dashboard', {
+          headers: response.headers,
+        });
+      }
+    } catch (error) {
+      console.error('Unexpected error during code exchange:', error);
+      return redirect('/login?error=auth_callback_error', {
+        headers: response.headers,
+      });
     }
-  }, {
+  }
+
+  // No code parameter, check if there's already a session
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session) {
+      return redirect('/dashboard', {
+        headers: response.headers,
+      });
+    }
+  } catch (error) {
+    console.error('Error getting session:', error);
+  }
+
+  // If we get here, something went wrong
+  return redirect('/login?error=no_session', {
     headers: response.headers,
   });
 }
 
+// This route should only handle server-side redirects
 export default function AuthCallback() {
-  const navigate = useNavigate();
-  const { ENV } = useLoaderData<typeof loader>();
-  
-  useEffect(() => {
-    const handleAuthCallback = async () => {
-      try {
-        if (!ENV?.SUPABASE_URL || !ENV?.SUPABASE_API_KEY) {
-          console.error('Missing Supabase environment variables');
-          navigate('/login?error=missing_env_vars');
-          return;
-        }
-        
-        const supabase = createBrowserClient(
-          ENV.SUPABASE_URL,
-          ENV.SUPABASE_API_KEY
-        );
-        
-        const { data, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Error getting session:', error);
-          navigate('/login?error=auth_callback_error');
-          return;
-        }
-        
-        if (data.session) {
-          navigate('/dashboard');
-        } else {
-          navigate('/login?error=no_session');
-        }
-      } catch (error) {
-        console.error('Auth callback error:', error);
-        navigate('/login?error=auth_callback_error');
-      }
-    };
-    
-    handleAuthCallback();
-  }, [ENV, navigate]);
-  
   return (
     <div className="flex items-center justify-center h-screen">
       <div className="text-center">
