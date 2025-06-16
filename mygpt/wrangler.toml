@@ -1,0 +1,33 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "mygpt"
+
+main = "./server.ts"
+workers_dev = true
+# https://developers.cloudflare.com/workers/platform/compatibility-dates
+compatibility_date = "2023-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+# https://developers.cloudflare.com/workers/static-assets/binding/
+directory = "./build/client"
+
+[build]
+command = "npm run build"
+
+[vars]
+SUPABASE_URL = "https://evszbtmxggkuttbkvgso.supabase.co"
+SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2c3pidG14Z2drdXR0Ymt2Z3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk4ODY3MDksImV4cCI6MjA2NTQ2MjcwOX0.hghvNFv84Iy2dzaVOqYlXzH-amraNxEmyREa6Uyifrs"
+
+[env.development]
+vars = { NODE_ENV = "development" }
+
+[env.production]
+vars = { NODE_ENV = "production" }
+
+# Environment variables will be loaded from .dev.vars for local development
+# For production, set these in Cloudflare dashboard or via wrangler secret
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "ai-agents"
+FILES_BUCKET="ai-agents"
