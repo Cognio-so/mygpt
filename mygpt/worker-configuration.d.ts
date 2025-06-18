@@ -3,11 +3,15 @@
 interface Env {
   SUPABASE_URL: string;
   SUPABASE_API_KEY: string;
+  VITE_APP_URL: string;
+  PYTHON_BACKEND_URL: string;
+  NODE_ENV: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   R2_BUCKET_NAME: string;
+  FILES_BUCKET?: string;
   R2_PUBLIC_DOMAIN: string;
-  FILES_BUCKET: string;
+  BREVO_API_KEY?: string;
   R2_BUCKET: R2Bucket;
 }

@@ -1,14 +1,15 @@
 import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/cloudflare";
 import { json } from "@remix-run/cloudflare";
-import AdminLayout from "~/components/admin/AdminLayout";
-import AdminDashboard from "~/components/admin/AdminDashboard";
-import { requireAdminAuth } from "~/lib/auth.server";
+import UserDashboard from "~/components/user/UserDashboard";
+import UserSidebar from "~/components/user/UserSidebar";
+import { requireUserAuth } from "~/lib/auth.server";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { getThemeFromCookie } from "~/lib/theme";
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Admin Dashboard - AI Agents Management" },
-    { name: "description", content: "Manage and organize your AI agents efficiently with our admin dashboard." },
+    { title: "User Dashboard - AI Agents" },
+    { name: "description", content: "Access and manage your AI agents." },
     { name: "robots", content: "index, follow" },
     { name: "viewport", content: "width=device-width, initial-scale=1" },
   ];
@@ -16,11 +17,12 @@ export const meta: MetaFunction = () => {
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
-  const { user, profile, response } = await requireAdminAuth(request, env);
+  const { user, profile, response } = await requireUserAuth(request, env);
   const { supabase } = createSupabaseServerClient(request, env);
+  const theme = getThemeFromCookie(request) || 'light';
 
   try {
-    // Fetch custom GPTs for the admin
+    // Fetch custom GPTs for the user
     const { data: agents, error } = await supabase
       .from('custom_gpts')
       .select('*')
@@ -29,16 +31,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
     if (error) {
       console.error('Error fetching custom GPTs:', error);
-      return json({ agents: [] }, {
+      return json({ agents: [], theme }, {
         headers: response.headers,
       });
     }
 
-    // Transform agents data with knowledge files
+    // Transform agents data
     const transformedAgents = [];
     
     if (agents && agents.length > 0) {
       for (const agent of agents) {
+        // Fetch knowledge files for each agent
         const { data: knowledgeFiles } = await supabase
           .from('knowledge_files')
           .select('id, file_name, file_url')
@@ -68,24 +71,28 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       user: {
         id: user.id,
         email: user.email,
-        name: profile?.full_name || user.email,
-      }
+        name: profile?.name || user.email,
+      },
+      theme
     }, {
       headers: response.headers,
     });
 
   } catch (error) {
     console.error('Loader error:', error);
-    return json({ agents: [] }, {
+    return json({ agents: [], theme }, {
       headers: response.headers,
     });
   }
 }
 
-export default function AdminDashboardPage() {
-  return (
-    <AdminLayout>
-      <AdminDashboard />
-    </AdminLayout>
-  );
+export default function UserDashboardRoute(){
+    return(
+      <div className="flex h-screen w-full bg-white dark:bg-gray-900">
+        <UserSidebar/>
+        <div className="flex-1">
+          <UserDashboard/>
+        </div>
+      </div>
+    )
 }

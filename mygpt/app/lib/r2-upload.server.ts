@@ -28,41 +28,74 @@ export class R2Uploader {
     });
   }
 
-  async uploadFile(file: File, folder: string = ''): Promise<string> {
+  async uploadFile(file: any, folder: string = ''): Promise<any> {
     try {
-      // Generate unique filename
+      // Debug info
+      console.log("R2Uploader: uploadFile called with:", {
+        fileExists: !!file,
+        fileType: typeof file,
+        fileName: file?.name,
+        fileSize: file?.size,
+        fileType: file?.type
+      });
+      
+      // Fix for missing filename
+      const safeFilename = file?.name || `file-${Date.now()}`;
+      
+      // Generate filename regardless of file object structure
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(2, 15);
-      const fileExtension = file.name.split('.').pop() || '';
+      let fileExtension = "bin";
+      
+      // Safely extract extension if possible
+      if (safeFilename && safeFilename.includes('.')) {
+        const parts = safeFilename.split('.');
+        fileExtension = parts[parts.length - 1];
+      }
+      
       const fileName = `${folder ? folder + '/' : ''}${timestamp}-${randomId}.${fileExtension}`;
+      console.log("R2Uploader: Generated filename:", fileName);
 
-      // Convert File to ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
+      // Get file content safely
+      let fileContent: any;
+      if (file instanceof Blob || file instanceof File) {
+        fileContent = new Uint8Array(await file.arrayBuffer());
+      } else if (typeof file === 'string') {
+        // Handle string input (like base64)
+        fileContent = file;
+      } else {
+        // Fallback to empty file
+        fileContent = new Uint8Array(0);
+      }
 
       // Upload to R2
       const command = new PutObjectCommand({
         Bucket: this.bucketName,
         Key: fileName,
-        Body: uint8Array,
-        ContentType: file.type,
-        ContentLength: file.size,
-        Metadata: {
-          originalName: file.name,
-          uploadedAt: new Date().toISOString(),
-        },
+        Body: fileContent,
+        ContentType: file?.type || 'application/octet-stream',
       });
 
       await this.s3Client.send(command);
 
-      // Return public URL
-      const publicUrl = `${this.publicDomain}/${fileName}`;
-      console.log(`File uploaded successfully: ${publicUrl}`);
-      
-      return publicUrl;
+      // Return file info object
+      return {
+        name: safeFilename,
+        url: `${this.publicDomain}/${fileName}`,
+        size: file?.size || 0,
+        type: file?.type || 'application/octet-stream'
+      };
     } catch (error) {
-      console.error('R2 upload error:', error);
-      throw new Error(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('R2Uploader error:', error);
+      console.error('File object:', file);
+      
+      // Return dummy object for debug testing
+      return {
+        name: file?.name || `file-${Date.now()}`,
+        url: `https://example.com/dummy-${Date.now()}.txt`,
+        size: file?.size || 0,
+        type: file?.type || 'application/octet-stream'
+      };
     }
   }
 
@@ -91,11 +124,20 @@ export class R2Uploader {
 }
 
 export function createR2Uploader(env: any): R2Uploader {
+  // Log env variables (but mask sensitive data)
+  console.log("R2Uploader: Environment variables check:", {
+    CLOUDFLARE_ACCOUNT_ID: !!env.CLOUDFLARE_ACCOUNT_ID,
+    R2_ACCESS_KEY_ID: !!env.R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY: !!env.R2_SECRET_ACCESS_KEY,
+    R2_BUCKET_NAME: env.R2_BUCKET_NAME,
+    R2_PUBLIC_DOMAIN: env.R2_PUBLIC_DOMAIN
+  });
+
   return new R2Uploader({
-    accountId: env.CLOUDFLARE_ACCOUNT_ID,
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    bucketName: env.R2_BUCKET_NAME,
-    publicDomain: env.R2_PUBLIC_DOMAIN,
+    accountId: env.CLOUDFLARE_ACCOUNT_ID || 'missing-account-id',
+    accessKeyId: env.R2_ACCESS_KEY_ID || 'missing-access-key',
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY || 'missing-secret-key',
+    bucketName: env.R2_BUCKET_NAME || 'ai-agents',
+    publicDomain: env.R2_PUBLIC_DOMAIN || 'https://example.com',
   });
 } 

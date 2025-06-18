@@ -10,6 +10,7 @@ import { TbRouter } from 'react-icons/tb';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Form } from '@remix-run/react';
+import type { FileAttachment } from '~/lib/database.types';
 
 interface CreateCustomGptProps {
   onGoBack: () => void;
@@ -21,14 +22,6 @@ interface CreateCustomGptProps {
   };
   isSubmitting?: boolean;
   initialData?: any;
-}
-
-interface KnowledgeFile {
-  id: string;
-  file_name: string;
-  file_url: string;
-  file_size?: number;
-  file_type?: string;
 }
 
 // Fix the CodeProps interface to be compatible with react-markdown
@@ -63,7 +56,7 @@ const CreateCustomGpt = ({
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>(initialData?.imageUrl || '');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [existingKnowledgeFiles, setExistingKnowledgeFiles] = useState<KnowledgeFile[]>(initialData?.knowledgeFiles || []);
+  const [existingKnowledgeFiles, setExistingKnowledgeFiles] = useState<FileAttachment[]>(initialData?.knowledgeFiles || []);
   const formRef = useRef<HTMLFormElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -132,8 +125,23 @@ const CreateCustomGpt = ({
 
   // Handle knowledge files selection with validation
   const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("🔍 CreateCustomGpt: File input changed");
+    
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
+      console.log("🔍 CreateCustomGpt: Selected files:", filesArray);
+      
+      filesArray.forEach((file, index) => {
+        console.log(`🔍 CreateCustomGpt: Selected file ${index + 1}:`, {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+          constructor: file.constructor.name,
+          isFile: file instanceof File
+        });
+      });
+      
       const validFiles: File[] = [];
       const errors: string[] = [];
       
@@ -154,6 +162,13 @@ const CreateCustomGpt = ({
       ];
       
       filesArray.forEach(file => {
+        console.log(`🔍 CreateCustomGpt: Validating file "${file.name}":`, {
+          size: file.size,
+          type: file.type,
+          sizeValid: file.size <= 100 * 1024 * 1024,
+          typeValid: allowedTypes.includes(file.type)
+        });
+        
         // Check file size (100MB limit per file)
         if (file.size > 100 * 1024 * 1024) {
           errors.push(`${file.name} is too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Max size is 100MB.`);
@@ -162,11 +177,17 @@ const CreateCustomGpt = ({
         
         // Check file type
         if (!allowedTypes.includes(file.type)) {
-          errors.push(`${file.name} has an unsupported file type. Please upload PDF, DOC, DOCX, TXT, MD, JSON, CSV, RTF, XLS, XLSX, PPT, or PPTX files.`);
+          errors.push(`${file.name} has an unsupported file type (${file.type}). Please upload PDF, DOC, DOCX, TXT, MD, JSON, CSV, RTF, XLS, XLSX, PPT, or PPTX files.`);
           return;
         }
         
         validFiles.push(file);
+      });
+      
+      console.log("🔍 CreateCustomGpt: Validation results:", {
+        totalFiles: filesArray.length,
+        validFiles: validFiles.length,
+        errors: errors.length
       });
       
       if (errors.length > 0) {
@@ -174,12 +195,16 @@ const CreateCustomGpt = ({
       }
       
       if (validFiles.length > 0) {
-        setSelectedFiles((prev: File[]) => [...prev, ...validFiles]);
+        console.log(`✅ CreateCustomGpt: Adding ${validFiles.length} valid files to selectedFiles`);
+        setSelectedFiles((prev: File[]) => {
+          const newFiles = [...prev, ...validFiles];
+          console.log("🔍 CreateCustomGpt: Updated selectedFiles:", newFiles);
+          return newFiles;
+        });
         console.log(`Added ${validFiles.length} valid knowledge files`);
       }
-      
-      // Reset the input
-      e.target.value = '';
+    } else {
+      console.log("🔍 CreateCustomGpt: No files selected or files array is empty");
     }
   };
 
@@ -216,12 +241,12 @@ const CreateCustomGpt = ({
   }, [imagePreview, initialData]);
 
   // Add function to remove existing knowledge files
-  const handleRemoveExistingFile = async (fileId: string, fileName: string) => {
+  const handleRemoveExistingFile = async (fileName: string) => {
     if (window.confirm(`Are you sure you want to remove "${fileName}"?`)) {
       try {
         // Here you would typically make an API call to delete the file
         // For now, just remove from the local state
-        setExistingKnowledgeFiles((prev: KnowledgeFile[]) => prev.filter(file => file.id !== fileId));
+        setExistingKnowledgeFiles((prev: FileAttachment[]) => prev.filter(file => file.name !== fileName));
       } catch (error) {
         console.error('Error removing file:', error);
         alert('Failed to remove file. Please try again.');
@@ -504,6 +529,62 @@ const CreateCustomGpt = ({
         method="post" 
         encType="multipart/form-data" 
         className="flex flex-col md:flex-row flex-1 h-full"
+        onSubmit={(e) => {
+          console.log("🔍 CreateCustomGpt: Form submit triggered");
+          console.log("🔍 CreateCustomGpt: selectedFiles state:", selectedFiles);
+          
+          // Prevent default form submission
+          e.preventDefault();
+          
+          // Create FormData manually
+          const formData = new FormData(e.currentTarget);
+          
+          // Add selected files to FormData
+          selectedFiles.forEach((file, index) => {
+            console.log(`🔍 CreateCustomGpt: Adding file ${index + 1} to FormData:`, {
+              name: file.name,
+              size: file.size,
+              type: file.type
+            });
+            formData.append('knowledgeFiles', file);
+          });
+          
+          // Log final FormData
+          const finalFiles = formData.getAll('knowledgeFiles');
+          console.log("🔍 CreateCustomGpt: Final FormData files:", finalFiles.length);
+          finalFiles.forEach((file, index) => {
+            const fileObj = file as File;
+            console.log(`🔍 CreateCustomGpt: FormData file ${index + 1}:`, {
+              name: fileObj.name,
+              size: fileObj.size,
+              type: fileObj.type,
+              constructor: fileObj.constructor.name
+            });
+          });
+          
+          // Submit the form manually with the proper FormData
+          fetch(e.currentTarget.action || window.location.pathname, {
+            method: 'POST',
+            body: formData,
+          }).then(response => {
+            if (response.ok) {
+              // Redirect on success
+              if (editGptId) {
+                window.location.href = '/admin';
+              } else {
+                window.location.href = '/admin';
+              }
+            } else {
+              response.json().then((data: any) => {
+                console.error('Form submission error:', data);
+                alert('Error: ' + (data.error || 'Unknown error'));   
+              });
+            }
+          }).catch(error => {
+            console.error('Form submission failed:', error);
+            alert('Form submission failed: ' + error.message);
+          });
+        }}
       >
         {/* RIGHT SIDE - Preview */}
         <div className="w-full md:w-1/2 h-1/2 md:h-full bg-gray-200 dark:bg-[#2A2A2A] flex flex-col">
@@ -738,7 +819,7 @@ const CreateCustomGpt = ({
                 </label>
               </div>
 
-              {/* Knowledge Files Section - Updated */}
+              {/* Knowledge Files Section - Updated for new schema */}
               <div className="border border-gray-400 dark:border-gray-700 rounded-lg overflow-hidden">
                 <div className="p-3 md:p-4 border-b border-gray-400 dark:border-gray-700">
                   <div className="flex items-center mb-1 md:mb-2">
@@ -756,12 +837,12 @@ const CreateCustomGpt = ({
                     <div className="mb-4">
                       <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Current Knowledge Files:</h4>
                       <div className="space-y-2">
-                        {existingKnowledgeFiles.map((file) => (
-                          <div key={file.id} className="flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                            <span className="text-sm text-blue-700 dark:text-blue-300 truncate">{file.file_name}</span>
+                        {existingKnowledgeFiles.map((file, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
+                            <span className="text-sm text-blue-700 dark:text-blue-300 truncate">{file.name}</span>
                             <button
                               type="button"
-                              onClick={() => handleRemoveExistingFile(file.id, file.file_name)}
+                              onClick={() => handleRemoveExistingFile(file.name)}
                               className="text-red-500 hover:text-red-700 ml-2"
                               title="Remove file"
                             >
@@ -828,6 +909,35 @@ const CreateCustomGpt = ({
                 </button>
               </div>
             </div>
+
+            {/* Hidden field to track selected files for debugging */}
+            {selectedFiles.length > 0 && (
+              <input 
+                type="hidden" 
+                name="selectedFilesDebug" 
+                value={JSON.stringify(selectedFiles.map(f => ({ name: f.name, size: f.size, type: f.type })))} 
+              />
+            )}
+
+            {/* Log form data before submission */}
+            <script dangerouslySetInnerHTML={{
+              __html: `
+                document.querySelector('form').addEventListener('submit', function(e) {
+                  console.log('🔍 CreateCustomGpt: Form submission started');
+                  const formData = new FormData(this);
+                  const knowledgeFiles = formData.getAll('knowledgeFiles');
+                  console.log('🔍 CreateCustomGpt: Knowledge files in FormData:', knowledgeFiles);
+                  knowledgeFiles.forEach((file, index) => {
+                    console.log('🔍 CreateCustomGpt: FormData file ' + (index + 1) + ':', {
+                      name: file.name,
+                      size: file.size,
+                      type: file.type,
+                      constructor: file.constructor.name
+                    });
+                  });
+                });
+              `
+            }} />
           </div>
         </div>
       </form>

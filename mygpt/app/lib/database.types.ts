@@ -15,6 +15,7 @@ export interface Database {
           email: string
           full_name: string | null
           avatar_url: string | null
+          role: 'admin' | 'user'
           created_at: string
           updated_at: string
         }
@@ -23,6 +24,7 @@ export interface Database {
           email: string
           full_name?: string | null
           avatar_url?: string | null
+          role?: 'admin' | 'user'
           created_at?: string
           updated_at?: string
         }
@@ -31,6 +33,7 @@ export interface Database {
           email?: string
           full_name?: string | null
           avatar_url?: string | null
+          role?: 'admin' | 'user'
           created_at?: string
           updated_at?: string
         }
@@ -113,6 +116,7 @@ export interface Database {
           is_featured: boolean
           view_count: number
           like_count: number
+          knowledge_base: string | null
           created_at: string
           updated_at: string
         }
@@ -132,6 +136,7 @@ export interface Database {
           is_featured?: boolean
           view_count?: number
           like_count?: number
+          knowledge_base?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -151,6 +156,7 @@ export interface Database {
           is_featured?: boolean
           view_count?: number
           like_count?: number
+          knowledge_base?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -187,6 +193,91 @@ export interface Database {
           uploaded_at?: string
         }
       }
+      user_documents: {
+        Row: {
+          id: string
+          user_id: string
+          file_name: string
+          file_url: string
+          file_size: number
+          file_type: string
+          upload_status: 'pending' | 'processing' | 'completed' | 'failed'
+          is_public: boolean
+          tags: string[] | null
+          description: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          file_name: string
+          file_url: string
+          file_size: number
+          file_type: string
+          upload_status?: 'pending' | 'processing' | 'completed' | 'failed'
+          is_public?: boolean
+          tags?: string[] | null
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          file_name?: string
+          file_url?: string
+          file_size?: number
+          file_type?: string
+          upload_status?: 'pending' | 'processing' | 'completed' | 'failed'
+          is_public?: boolean
+          tags?: string[] | null
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      chat_attachments: {
+        Row: {
+          id: string
+          message_id: string | null
+          session_id: string | null
+          conversation_id: string | null
+          user_id: string
+          file_name: string
+          file_url: string
+          file_size: number
+          file_type: string
+          upload_status: 'pending' | 'processing' | 'completed' | 'failed'
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          message_id?: string | null
+          session_id?: string | null
+          conversation_id?: string | null
+          user_id: string
+          file_name: string
+          file_url: string
+          file_size: number
+          file_type: string
+          upload_status?: 'pending' | 'processing' | 'completed' | 'failed'
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          message_id?: string | null
+          session_id?: string | null
+          conversation_id?: string | null
+          user_id?: string
+          file_name?: string
+          file_url?: string
+          file_size?: number
+          file_type?: string
+          upload_status?: 'pending' | 'processing' | 'completed' | 'failed'
+          created_at?: string
+        }
+      }
       conversations: {
         Row: {
           id: string
@@ -220,6 +311,7 @@ export interface Database {
           role: 'user' | 'assistant' | 'system'
           content: string
           metadata: Json
+          attachments: string[] | null
           created_at: string
         }
         Insert: {
@@ -228,6 +320,7 @@ export interface Database {
           role: 'user' | 'assistant' | 'system'
           content: string
           metadata?: Json
+          attachments?: string[] | null
           created_at?: string
         }
         Update: {
@@ -236,6 +329,7 @@ export interface Database {
           role?: 'user' | 'assistant' | 'system'
           content?: string
           metadata?: Json
+          attachments?: string[] | null
           created_at?: string
         }
       }
@@ -300,6 +394,61 @@ export interface Database {
           created_at?: string
         }
       }
+      chat_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          gpt_id: string
+          model: string | null
+          created_at: string
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          gpt_id: string
+          model?: string | null
+          created_at?: string
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          gpt_id?: string
+          model?: string | null
+          created_at?: string
+          updated_at?: string | null
+        }
+      }
+      chat_messages: {
+        Row: {
+          id: string
+          session_id: string
+          role: 'user' | 'assistant' | 'system'
+          content: string
+          metadata: Json | null
+          user_docs: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          role: 'user' | 'assistant' | 'system'
+          content: string
+          metadata?: Json | null
+          user_docs?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          role?: 'user' | 'assistant' | 'system'
+          content?: string
+          metadata?: Json | null
+          user_docs?: string | null
+          created_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -311,4 +460,89 @@ export interface Database {
       [_ in never]: never
     }
   }
-} 
+}
+
+export type Tables<
+  PublicTableNameOrOptions extends
+    | keyof (Database["public"]["Tables"])
+    | { schema: keyof Database },
+  TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
+    ? keyof (Database[PublicTableNameOrOptions["schema"]]["Tables"])
+    : never = never
+> = PublicTableNameOrOptions extends { schema: keyof Database }
+  ? (Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Row: infer R
+    }
+      ? R
+      : never)
+  : PublicTableNameOrOptions extends keyof (Database["public"]["Tables"])
+  ? (Database["public"]["Tables"][PublicTableNameOrOptions] extends {
+      Row: infer R
+    }
+      ? R
+      : never)
+  : never
+
+export type TablesInsert<
+  PublicTableNameOrOptions extends
+    | keyof (Database["public"]["Tables"])
+    | { schema: keyof Database },
+  TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
+    ? keyof (Database[PublicTableNameOrOptions["schema"]]["Tables"])
+    : never = never
+> = PublicTableNameOrOptions extends { schema: keyof Database }
+  ? (Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+      ? I
+      : never)
+  : PublicTableNameOrOptions extends keyof (Database["public"]["Tables"])
+  ? (Database["public"]["Tables"][PublicTableNameOrOptions] extends {
+      Insert: infer I
+    }
+      ? I
+      : never)
+  : never
+
+export type TablesUpdate<
+  PublicTableNameOrOptions extends
+    | keyof (Database["public"]["Tables"])
+    | { schema: keyof Database },
+  TableName extends PublicTableNameOrOptions extends { schema: keyof Database }
+    ? keyof (Database[PublicTableNameOrOptions["schema"]]["Tables"])
+    : never = never
+> = PublicTableNameOrOptions extends { schema: keyof Database }
+  ? (Database[PublicTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+      ? U
+      : never)
+  : PublicTableNameOrOptions extends keyof (Database["public"]["Tables"])
+  ? (Database["public"]["Tables"][PublicTableNameOrOptions] extends {
+      Update: infer U
+    }
+      ? U
+      : never)
+  : never
+
+export type Enums<
+  PublicEnumNameOrOptions extends
+    | keyof (Database["public"]["Enums"])
+    | { schema: keyof Database },
+  EnumName extends PublicEnumNameOrOptions extends { schema: keyof Database }
+    ? keyof (Database[PublicEnumNameOrOptions["schema"]]["Enums"])
+    : never = never
+> = PublicEnumNameOrOptions extends { schema: keyof Database }
+  ? Database[PublicEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : PublicEnumNameOrOptions extends keyof (Database["public"]["Enums"])
+  ? Database["public"]["Enums"][PublicEnumNameOrOptions]
+  : never
+
+// Helper types for the new file structures
+export interface FileAttachment {
+  name: string;
+  url: string;
+  size: number;
+  type: string;
+  uploadedAt?: string;
+}

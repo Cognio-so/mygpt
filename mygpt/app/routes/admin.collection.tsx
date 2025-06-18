@@ -4,6 +4,7 @@ import { useLoaderData } from "@remix-run/react";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { AdminLayout } from "~/components/admin/AdminLayout";
 import AdminCollection from "~/components/admin/AdminCollection";
+import { MetaFunction } from "@remix-run/node";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
@@ -45,28 +46,38 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     const transformedGpts = [];
     
     if (customGpts && customGpts.length > 0) {
-      for (const gpt of customGpts) {
-        // Fetch knowledge files for each GPT
-        const { data: knowledgeFiles } = await supabase
-          .from('knowledge_files')
-          .select('id, file_name, file_url')
-          .eq('gpt_id', gpt.id);
+      // Get all GPT IDs
+      const gptIds = customGpts.map(gpt => gpt.id);
+      
+      // Fetch all knowledge files in one query
+      const { data: allKnowledgeFiles } = await supabase
+        .from('knowledge_files')
+        .select('id, file_name, file_url, gpt_id')
+        .in('gpt_id', gptIds);
 
+      // Group knowledge files by gpt_id
+      const knowledgeFilesByGptId = allKnowledgeFiles?.reduce((acc, file) => {
+        if (!acc[file.gpt_id]) acc[file.gpt_id] = [];
+        acc[file.gpt_id].push(file);
+        return acc;
+      }, {} as Record<string, any[]>) || {};
+
+      // Transform GPTs with their knowledge files
+      for (const gpt of customGpts) {
+        const knowledgeFiles = knowledgeFilesByGptId[gpt.id] || [];
         transformedGpts.push({
           _id: gpt.id,
           name: gpt.name,
           description: gpt.description,
           imageUrl: gpt.image_url,
           model: gpt.model,
-          capabilities: {
-            webBrowsing: gpt.web_browsing,
-          },
+          capabilities: { webBrowsing: gpt.web_browsing },
           createdAt: gpt.created_at,
           folder: gpt.folder,
-          knowledgeBase: knowledgeFiles?.map((file: any) => ({
+          knowledgeBase: knowledgeFiles.map(file => ({
             fileName: file.file_name,
             fileUrl: file.file_url,
-          })) || [],
+          })),
         });
       }
     }
@@ -105,4 +116,12 @@ export default function CollectionsRoute() {
       <AdminCollection/>
     </AdminLayout>
   );
-} 
+}
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Collections - AI Agents Management" },
+    { name: "description", content: "Manage your custom AI agent collections" },
+    { name: "robots", content: "noindex, nofollow" }, // Private admin area
+  ];
+}; 

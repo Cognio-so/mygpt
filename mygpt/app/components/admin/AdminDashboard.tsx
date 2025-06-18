@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Link, useLoaderData, useFetcher } from '@remix-run/react';
+import { Link, useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
 import { FiSearch, FiChevronDown, FiChevronUp, FiMenu, FiPlus, FiGlobe, FiEdit, FiTrash2, FiFolderPlus, FiFolder } from 'react-icons/fi';
 import { SiOpenai, SiGooglegemini } from 'react-icons/si';
 import { FaRobot } from 'react-icons/fa6';
@@ -11,6 +11,8 @@ import { Input } from '~/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '~/components/ui/dropdown-menu';
 import { ScrollArea } from '~/components/ui/scroll-area';
 import { useTheme } from '~/context/themeContext';
+import { ScrollAreaCorner } from '@radix-ui/react-scroll-area';
+import { ClientOnly } from '~/components/ClientOnly';
 
 interface Agent {
   _id: string;
@@ -29,6 +31,7 @@ interface Agent {
   }>;
 }
 
+// Move model icons outside component to prevent recreation
 const modelIcons: Record<string, JSX.Element> = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
   'GPT-4o': <RiOpenaiFill className="text-green-500" size={18} />,
@@ -40,6 +43,8 @@ const modelIcons: Record<string, JSX.Element> = {
   'Llama 4 Scout': <BiLogoMeta className="text-blue-700" size={18} />
 };
 
+const sortOptions = ['Default', 'Latest', 'Older'];
+
 interface EnhancedAgentCardProps {
   agent: Agent;
   onClick: () => void;
@@ -48,8 +53,23 @@ interface EnhancedAgentCardProps {
   onMoveToFolder: (agent: Agent) => void;
 }
 
+// Memoize the agent card to prevent unnecessary re-renders
 const EnhancedAgentCard = React.memo(({ agent, onClick, onEdit, onDelete, onMoveToFolder }: EnhancedAgentCardProps) => {
-  const { theme } = useTheme();
+  const handleMoveToFolder = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onMoveToFolder(agent);
+  }, [agent, onMoveToFolder]);
+
+  const handleEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onEdit(agent._id);
+  }, [agent._id, onEdit]);
+
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete(agent._id);
+  }, [agent._id, onDelete]);
+
   return (
     <article
       className="group relative flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white transition-all hover:border-blue-400/50 hover:shadow-lg dark:border-gray-700 dark:bg-gray-800 cursor-pointer"
@@ -72,20 +92,14 @@ const EnhancedAgentCard = React.memo(({ agent, onClick, onEdit, onDelete, onMove
           <button
             className="bg-white/80 text-gray-700 hover:bg-green-200 hover:text-white dark:bg-gray-900/70 dark:text-gray-200 dark:hover:bg-green-700/80 rounded-full p-2"
             title="Move to Folder"
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              onMoveToFolder(agent);
-            }}
+            onClick={handleMoveToFolder}
           >
             <FiFolderPlus size={14} />
           </button>
           <button
             className="bg-white/80 text-gray-700 hover:bg-blue-300 hover:text-white dark:bg-gray-900/70 dark:text-gray-200 dark:hover:bg-blue-700/80 rounded-full p-2"
             title="Edit Agent"
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              onEdit(agent._id);
-            }}
+            onClick={handleEdit}
           >
             <FiEdit size={14} />
           </button>
@@ -93,10 +107,7 @@ const EnhancedAgentCard = React.memo(({ agent, onClick, onEdit, onDelete, onMove
             type="button"
             className="bg-white/80 text-gray-700 hover:bg-red-300 hover:text-white dark:bg-gray-900/70 dark:text-gray-200 dark:hover:bg-red-700/80 rounded-full p-2"
             title="Delete Agent"
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              onDelete(agent._id);
-            }}
+            onClick={handleDelete}
           >
             <FiTrash2 size={14} />
           </button>
@@ -135,9 +146,67 @@ const EnhancedAgentCard = React.memo(({ agent, onClick, onEdit, onDelete, onMove
   );
 });
 
-interface AdminDashboardProps {
-  userName?: string;
-}
+// Memoize the header component
+const DashboardHeader = React.memo(({ 
+  searchTerm, 
+  onSearchChange, 
+  onToggleTheme, 
+  theme 
+}: {
+  searchTerm: string;
+  onSearchChange: (value: string) => void;
+  onToggleTheme: () => void;
+  theme: string;
+}) => {
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    onSearchChange(e.target.value);
+  }, [onSearchChange]);
+
+  return (
+    <header className="sticky top-0 z-10 flex items-center justify-between bg-white px-4 py-4 shadow-sm dark:bg-neutral-900 sm:px-6 rounded-t-lg">
+      <div className="flex items-center gap-4">
+        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="relative">
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Input
+            type="search"
+            placeholder="Search agents..."
+            value={searchTerm}
+            onChange={handleSearchChange}
+            className="w-64 pl-10"
+          />
+        </div>
+        <Button variant="ghost" size="icon" onClick={onToggleTheme} title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}>
+          {theme === 'dark' ? <RiSunFill size={20} className="text-yellow-400" /> : <RiMoonFill size={20} className="text-gray-700" />}
+        </Button>
+        <Button asChild>
+          <Link to="/admin/create-gpt" className="flex items-center gap-2">
+            <FiPlus size={18} />
+            Create Agent
+          </Link>
+        </Button>
+      </div>
+    </header>
+  );
+});
+
+// Loading skeleton component
+const LoadingSkeleton = React.memo(() => (
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    {Array.from({ length: 8 }).map((_, i) => (
+      <div key={i} className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 animate-pulse">
+        <div className="h-36 bg-gray-200 dark:bg-gray-700 rounded-t-lg"></div>
+        <div className="p-4 space-y-3">
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+        </div>
+      </div>
+    ))}
+  </div>
+));
 
 interface FolderSection {
   key: string;
@@ -145,17 +214,19 @@ interface FolderSection {
   agents: Agent[];
 }
 
+interface AdminDashboardProps {
+  userName?: string;
+}
+
 export default function AdminDashboard({ userName = "Admin User" }: AdminDashboardProps) {
   const { agents } = useLoaderData<{ agents: Agent[] }>();
   const fetcher = useFetcher();
+  const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState('Default');
-  const [showSidebar, setShowSidebar] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const sortOptions = ['Default', 'Latest', 'Older'];
-
+  // Optimize sorting function with useCallback
   const applySorting = useCallback((agents: Agent[], sortOpt: string): Agent[] => {
     if (sortOpt === 'Default') return agents;
     const sortedAgents = [...agents];
@@ -167,23 +238,19 @@ export default function AdminDashboard({ userName = "Admin User" }: AdminDashboa
     return sortedAgents;
   }, []);
 
+  // Optimize data organization with useMemo
   const organizedAgents = useMemo(() => {
-    if (!agents || agents.length === 0) {
-      return [];
-    }
+    if (!agents?.length) return [];
     
-    // Get all unique folders
     const uniqueFolders = Array.from(new Set(agents.map(a => a.folder).filter(Boolean)));
     const sections: FolderSection[] = [];
 
     // Featured agents (first 4 agents)
-    if (agents.length > 0) {
-      sections.push({
-        key: 'featured',
-        title: 'Featured Agents',
-        agents: agents.slice(0, 4)
-      });
-    }
+    sections.push({
+      key: 'featured',
+      title: 'Featured Agents',
+      agents: agents.slice(0, 4)
+    });
 
     // Folder-based sections
     uniqueFolders.forEach(folder => {
@@ -197,11 +264,10 @@ export default function AdminDashboard({ userName = "Admin User" }: AdminDashboa
       }
     });
 
-   
-
     return sections;
   }, [agents]);
 
+  // Optimize filtering with useMemo and debounced search
   const filteredAgentsData = useMemo(() => {
     const searchTermLower = searchTerm.toLowerCase().trim();
     
@@ -224,8 +290,9 @@ export default function AdminDashboard({ userName = "Admin User" }: AdminDashboa
     }).filter(section => section.agents.length > 0);
   }, [searchTerm, organizedAgents, sortOption, applySorting]);
 
+  // Optimize handlers with useCallback
   const handleDeleteGpt = useCallback(
-    async (id: string) => {
+    (id: string) => {
       if (window.confirm('Are you sure you want to delete this agent?')) {
         fetcher.submit({ id, intent: 'delete' }, { method: 'post', action: '/admin/delete-gpt' });
       }
@@ -234,8 +301,8 @@ export default function AdminDashboard({ userName = "Admin User" }: AdminDashboa
   );
 
   const handleEditGpt = useCallback((id: string) => {
-    window.location.href = `/admin/edit-gpt/${id}`;
-  }, []);
+    navigate(`/admin/edit-gpt/${id}`);
+  }, [navigate]);
 
   const handleMoveToFolder = useCallback(
     (agent: Agent) => {
@@ -247,118 +314,89 @@ export default function AdminDashboard({ userName = "Admin User" }: AdminDashboa
     [fetcher]
   );
 
+  const handleNavigateToChat = useCallback((agentId: string) => {
+    navigate(`/admin/chat/${agentId}`);
+  }, [navigate]);
+
   const toggleTheme = useCallback(() => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
   }, [theme, setTheme]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setSortOption('Default');
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleNavigateToChat = useCallback((agentId: string) => {
-    window.location.href = `/admin/chat/${agentId}`;
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
   }, []);
 
   const hasSearchResults = filteredAgentsData.some(section => section.agents.length > 0);
 
   return (
-    <div className={`min-h-screen font-sans ${theme === 'dark' ? 'dark' : ''} bg-gray-50 dark:bg-neutral-900 text-gray-900 dark:text-white rounded-lg`}>
-      <header className="sticky top-0 z-10 flex items-center justify-between  bg-white px-4 py-4 shadow-sm dark:bg-neutral-900 sm:px-6 rounded-t-lg">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" className="sm:hidden" onClick={() => setShowSidebar(!showSidebar)}>
-            <FiMenu size={24} />
-          </Button>
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <Input
-              type="search"
-              placeholder="Search agents..."
-              value={searchTerm}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
-              className="w-64 pl-10"
-            />
-          </div>
-          <Button variant="ghost" size="icon" onClick={toggleTheme} title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}>
-            {theme === 'dark' ? <RiSunFill size={20} className="text-yellow-400" /> : <RiMoonFill size={20} className="text-gray-700" />}
-          </Button>
-          <Button asChild>
-            <Link to="/admin/create-gpt" className="flex items-center gap-2">
-              <FiPlus size={18} />
-              Create Agent
-            </Link>
-          </Button>
-        </div>
-      </header>
+    <div className={`flex flex-col h-screen font-sans ${theme === 'dark' ? 'dark' : ''} bg-gray-50 dark:bg-neutral-900 text-gray-900 dark:text-white rounded-lg overflow-hidden`}>
+      <DashboardHeader 
+        searchTerm={searchTerm}
+        onSearchChange={handleSearchChange}
+        onToggleTheme={toggleTheme}
+        theme={theme}
+      />
 
-      {showSidebar && (
-        <div className="fixed inset-0 z-40 bg-black/80 sm:hidden" onClick={() => setShowSidebar(false)} />
-      )}
-
-      <ScrollArea className="flex-1 p-4 sm:p-6">
-        {searchTerm && !hasSearchResults ? (
-          <p className="py-12 text-center text-gray-500 dark:text-gray-400">No agents found for &quot;{searchTerm}&quot;</p>
-        ) : !agents || agents.length === 0 ? (
-          <div className="flex h-64 flex-col items-center justify-center py-8">
-            <p className="mb-4 text-lg text-gray-600 dark:text-gray-400">No custom agents found</p>
-            <Button asChild>
-              <Link to="/admin/create-gpt">Create Your First Agent</Link>
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {filteredAgentsData.map((section, index) => (
-              <section key={section.key} className="mb-8">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-xl font-semibold flex items-center gap-2">
-                    {section.key === 'featured' && '⭐'}
-                    {section.title}
-                    <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-                      ({section.agents.length})
-                    </span>
-                  </h2>
-                  {index === 0 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="flex items-center gap-2">
-                          Sort: {sortOption}
-                          {sortOption === 'Default' ? <FiChevronDown /> : <FiChevronUp />}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" ref={dropdownRef}>
-                        {sortOptions.map(option => (
-                          <DropdownMenuItem key={option} onSelect={() => setSortOption(option)}>
-                            {option}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {section.agents.map(agent => (
-                    <EnhancedAgentCard
-                      key={agent._id}
-                      agent={agent}
-                      onClick={() => handleNavigateToChat(agent._id)}
-                      onEdit={handleEditGpt}
-                      onDelete={handleDeleteGpt}
-                      onMoveToFolder={handleMoveToFolder}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
+      <ScrollArea className="flex-1 h-full">
+        <div className="p-4 sm:p-6">
+          <ClientOnly fallback={<LoadingSkeleton />}>
+            {searchTerm && !hasSearchResults ? (
+              <p className="py-12 text-center text-gray-500 dark:text-gray-400">No agents found for "{searchTerm}"</p>
+            ) : !agents || agents.length === 0 ? (
+              <div className="flex h-64 flex-col items-center justify-center py-8">
+                <p className="mb-4 text-lg text-gray-600 dark:text-gray-400">No custom agents found</p>
+                <Button asChild>
+                  <Link to="/admin/create-gpt">Create Your First Agent</Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {filteredAgentsData.map((section, index) => (
+                  <section key={section.key} className="mb-8">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h2 className="text-xl font-semibold flex items-center gap-2">
+                        {section.key === 'featured' && '⭐'}
+                        {section.title}
+                        <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+                          ({section.agents.length})
+                        </span>
+                      </h2>
+                      {index === 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className="flex items-center gap-2">
+                              Sort: {sortOption}
+                              {sortOption === 'Default' ? <FiChevronDown /> : <FiChevronUp />}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {sortOptions.map(option => (
+                              <DropdownMenuItem key={option} onSelect={() => setSortOption(option)}>
+                                {option}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {section.agents.map(agent => (
+                        <EnhancedAgentCard
+                          key={agent._id}
+                          agent={agent}
+                          onClick={() => handleNavigateToChat(agent._id)}
+                          onEdit={handleEditGpt}
+                          onDelete={handleDeleteGpt}
+                          onMoveToFolder={handleMoveToFolder}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
+          </ClientOnly>
+        </div>
       </ScrollArea>
     </div>
   );

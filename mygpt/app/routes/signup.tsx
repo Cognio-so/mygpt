@@ -4,8 +4,11 @@ import { Button } from "~/components/ui/button";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { json, redirect } from "@remix-run/cloudflare";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { createBrowserClient } from "@supabase/auth-helpers-remix";
+import { redirectAuthenticatedUser } from "~/lib/auth.server";
+import { getSupabaseClient } from "~/lib/supabase.client";
+import { useSupabase } from "~/context/supabaseContext";
 
 type ActionData = {
   error?: string;
@@ -14,17 +17,9 @@ type ActionData = {
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
-  const { supabase, response } = createSupabaseServerClient(request, env);
   
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (session) {
-    return redirect('/dashboard', {
-      headers: response.headers,
-    });
-  }
+  // Redirect if already authenticated
+  await redirectAuthenticatedUser(request, env);
 
   return json({
     ENV: {
@@ -32,7 +27,10 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       SUPABASE_API_KEY: env.SUPABASE_API_KEY,
     }
   }, {
-    headers: response.headers,
+    headers: {
+      'X-Robots-Tag': 'noindex, nofollow',
+      'Cache-Control': 'private, no-cache',
+    },
   });
 }
 
@@ -84,17 +82,20 @@ export default function Signup() {
   const { ENV } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === 'submitting';
+  const { supabase, isReady } = useSupabase();
+
+  const supabaseClient = useMemo(() => {
+    if (!ENV?.SUPABASE_URL || !ENV?.SUPABASE_API_KEY) {
+      return null;
+    }
+    return getSupabaseClient(ENV.SUPABASE_URL, ENV.SUPABASE_API_KEY);
+  }, [ENV]);
 
   const handleGoogleSignIn = useCallback(async () => {
-    if (!ENV?.SUPABASE_URL || !ENV?.SUPABASE_API_KEY) {
-      console.error('Missing Supabase environment variables');
+    if (!supabase || !isReady) {
+      console.error('Supabase client not ready');
       return;
     }
-    
-    const supabase = createBrowserClient(
-      ENV.SUPABASE_URL,
-      ENV.SUPABASE_API_KEY
-    );
     
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -102,7 +103,7 @@ export default function Signup() {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-  }, [ENV]);
+  }, [supabase, isReady]);
 
   return (
     <div className="flex h-screen w-full bg-white">
@@ -209,11 +210,11 @@ export default function Signup() {
           <Button
             type="button"
             onClick={handleGoogleSignIn}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !isReady}
             className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 py-3 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-all shadow-sm disabled:opacity-50"
           >
             <FcGoogle size={20} />
-            {isSubmitting ? 'Signing up...' : 'Sign up with Google'}
+            {isSubmitting ? 'Signing up...' : isReady ? 'Sign up with Google' : 'Loading...'}
           </Button>
 
           <p className="text-center mt-8 text-gray-600">

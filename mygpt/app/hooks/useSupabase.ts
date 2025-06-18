@@ -1,36 +1,29 @@
+import { createClient } from '@supabase/supabase-js';
 import { useMemo } from 'react';
-import { createBrowserClient } from '@supabase/auth-helpers-remix';
-import type { Database } from '~/lib/database.types';
+import { useOutletContext } from '@remix-run/react';
 
-// Create a singleton client to prevent multiple instances
-let clientInstance: any = null;
+type SupabaseClient = ReturnType<typeof createClient>;
 
-export function useSupabase(supabaseUrl: string, supabaseKey: string) {
-  return useMemo(() => {
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase environment variables');
-      return null;
-    }
+type ContextType = { supabase: SupabaseClient };
+
+export const useSupabase = () => {
+  // Try to get Supabase from outlet context first
+  try {
+    return useOutletContext<ContextType>();
+  } catch (error) {
+    // If not available in outlet context, create it using ENV values
+    // This is a fallback, but should be avoided in production
+    console.warn('Supabase client not found in context, creating new instance');
     
-    // Return existing instance if already created with same config
-    if (clientInstance && 
-        clientInstance.supabaseUrl === supabaseUrl && 
-        clientInstance.supabaseKey === supabaseKey) {
-      return clientInstance.client;
-    }
+    const supabaseUrl = typeof window !== 'undefined' ? 
+      (window.ENV?.SUPABASE_URL || '') : '';
+    const supabaseKey = typeof window !== 'undefined' ? 
+      (window.ENV?.SUPABASE_API_KEY || '') : '';
     
-    const client = createBrowserClient<Database>(
-      supabaseUrl,
-      supabaseKey
-    );
+    const supabase = useMemo(() => {
+      return createClient(supabaseUrl, supabaseKey);
+    }, [supabaseUrl, supabaseKey]);
     
-    // Store the instance
-    clientInstance = {
-      client,
-      supabaseUrl,
-      supabaseKey
-    };
-    
-    return client;
-  }, [supabaseUrl, supabaseKey]);
-}
+    return { supabase };
+  }
+};

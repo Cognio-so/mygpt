@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { useFetcher } from '@remix-run/react';
 import { Theme, getSystemTheme, applyTheme } from '~/lib/theme';
 
@@ -17,20 +17,19 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children, specifiedTheme }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    // If we have a specified theme from the server, use it
-    if (specifiedTheme) return specifiedTheme;
-    
-    // Otherwise, try to get from localStorage or fall back to system
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('theme-preference');
       if (stored === 'light' || stored === 'dark') return stored;
     }
-    
-    return getSystemTheme();
+    return specifiedTheme ?? 'light';
   });
-
   const [systemTheme, setSystemTheme] = useState<Theme>(getSystemTheme);
   const fetcher = useFetcher();
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   // Update system theme when it changes
   useEffect(() => {
@@ -51,7 +50,9 @@ export function ThemeProvider({ children, specifiedTheme }: ThemeProviderProps) 
     }
   }, [theme]);
 
-  const setTheme = (newTheme: Theme) => {
+  const setTheme = useCallback((newTheme: Theme) => {
+    if (!isHydrated) return; // Prevent updates during hydration
+    
     setThemeState(newTheme);
     
     // Update server-side cookie with error handling
@@ -61,21 +62,18 @@ export function ThemeProvider({ children, specifiedTheme }: ThemeProviderProps) 
         { 
           method: 'POST', 
           action: '/api/theme',
-          // Don't prevent theme change if server request fails
           preventScrollReset: true
         }
       );
     } catch (error) {
       console.warn('Failed to update theme on server:', error);
-      // Theme still works locally via localStorage
     }
-  };
+  }, [isHydrated, fetcher]);
 
   // Handle fetcher errors gracefully
   useEffect(() => {
     if (fetcher.state === 'idle' && fetcher.data && typeof fetcher.data === 'object' && 'error' in fetcher.data) {
       console.warn('Theme server update failed:', fetcher.data.error);
-      // Don't revert the theme change, just log the error
     }
   }, [fetcher.state, fetcher.data]);
 

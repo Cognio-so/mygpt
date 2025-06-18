@@ -1,8 +1,8 @@
 import React from 'react';
 import { useOutletContext } from '@remix-run/react';
-import { AdminSidebarWithProvider } from './AdminSidebar';
 import { ThemeProvider } from '~/context/themeContext';
 import type { Theme } from '~/lib/theme';
+import AdminSidebar from './AdminSidebar';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -13,16 +13,20 @@ interface OutletContext {
   theme?: Theme | null;
 }
 
-export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activePage }) => {
+// Memoize the layout to prevent unnecessary re-renders
+export const AdminLayout: React.FC<AdminLayoutProps> = React.memo(({ children, activePage }) => {
   const { theme } = useOutletContext<OutletContext>();
   
   return (
     <ThemeProvider specifiedTheme={theme}>
-      <AdminSidebarWithProvider activePage={activePage}>
-        {children}
-      </AdminSidebarWithProvider>
+      <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+        <AdminSidebar activePage={activePage} />
+        <main className="flex-1 overflow-hidden">
+          {children}
+        </main>
+      </div>
     </ThemeProvider>
   );
-};
+});
 
 export default AdminLayout; 

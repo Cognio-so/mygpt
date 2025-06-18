@@ -1,67 +1,72 @@
 import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
-import { json, redirect } from "@remix-run/cloudflare";
+import { redirect, json } from "@remix-run/cloudflare";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('code');
-  const error = requestUrl.searchParams.get('error');
-  const error_description = requestUrl.searchParams.get('error_description');
-
-  const env = context.cloudflare.env;
-  const { supabase, response } = createSupabaseServerClient(request, env);
-
-  // Handle OAuth errors
-  if (error) {
-    console.error('OAuth error:', error, error_description);
-    return redirect(`/login?error=${encodeURIComponent(error_description || error)}`, {
-      headers: response.headers,
-    });
-  }
-
-  // Exchange code for session
-  if (code) {
-    try {
-      const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-      
-      if (exchangeError) {
-        console.error('Error exchanging code for session:', exchangeError);
-        return redirect('/login?error=auth_callback_error', {
+  try {
+    const env = context.cloudflare.env;
+    const { supabase, response } = createSupabaseServerClient(request, env);
+    
+    const url = new URL(request.url);
+    const code = url.searchParams.get('code');
+  
+    if (code) {
+      await supabase.auth.exchangeCodeForSession(code);
+    }
+  
+    // Get the user session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session) {
+      // Get user profile to check role
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .single();
+  
+      // If no profile exists, create one with default user role
+      if (!profile) {
+        try {
+          await supabase
+            .from('profiles')
+            .insert({
+              id: session.user.id,
+              email: session.user.email || '',
+              full_name: session.user.user_metadata?.full_name || session.user.email || '',
+              role: 'user', // Default role
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+  
+          return redirect('/dashboard', {
+            headers: response.headers,
+          });
+        } catch (insertError) {
+          console.error('Error creating profile:', insertError);
+        }
+      }
+  
+      // Redirect based on role
+      if (profile?.role === 'admin') {
+        return redirect('/admin', {
           headers: response.headers,
         });
-      }
-
-      if (data.session) {
-        // Successfully authenticated, redirect to dashboard
+      } else {
         return redirect('/dashboard', {
           headers: response.headers,
         });
       }
-    } catch (error) {
-      console.error('Unexpected error during code exchange:', error);
-      return redirect('/login?error=auth_callback_error', {
-        headers: response.headers,
-      });
     }
-  }
-
-  // No code parameter, check if there's already a session
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (session) {
-      return redirect('/dashboard', {
-        headers: response.headers,
-      });
-    }
+  
+    // If no session, redirect to login
+    return redirect('/login', {
+      headers: response.headers,
+    });
   } catch (error) {
-    console.error('Error getting session:', error);
+    console.error('Auth callback error:', error);
+    return json({ error: 'Authentication error' }, { status: 500 });
   }
-
-  // If we get here, something went wrong
-  return redirect('/login?error=no_session', {
-    headers: response.headers,
-  });
 }
 
 // This route should only handle server-side redirects

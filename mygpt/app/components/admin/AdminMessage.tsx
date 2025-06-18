@@ -20,13 +20,20 @@ const useTheme = (): UseTheme => {
 };
 
 interface AdminMessageInputProps {
-  onSubmit: (message: string) => void;
-  onFileUpload?: (files: FileList) => void;
+  onSubmit: (message: string, files?: FileObject[]) => void;
+  onFileUpload?: (files: FileObject[]) => void;
   isLoading: boolean;
-  currentGptName: string;
+  currentGptName?: string;
   webSearchEnabled: boolean;
   setWebSearchEnabled: (enabled: boolean) => void;
   showWebSearchIcon: boolean;
+}
+
+// Add this interface for FileObject if not already present
+interface FileObject {
+  name: string;
+  size?: number;
+  type?: string;
 }
 
 const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
@@ -39,6 +46,7 @@ const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
   showWebSearchIcon
 }) => {
   const [inputMessage, setInputMessage] = useState<string>('');
+  const [selectedFiles, setSelectedFiles] = useState<FileObject[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { isDarkMode } = useTheme();
@@ -73,10 +81,13 @@ const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
-    // Prevent submission if loading or input is empty
-    if (isLoading || !inputMessage.trim()) return;
-    onSubmit(inputMessage);
+    if (isLoading || (!inputMessage.trim() && selectedFiles.length === 0)) return;
+    
+    console.log("📝 AdminMessage: Submitting with files:", selectedFiles);
+    onSubmit(inputMessage, selectedFiles);
     setInputMessage('');
+    setSelectedFiles([]);
+    
     // Reset height after submitting
     setTimeout(() => {
       if (textareaRef.current) {
@@ -86,18 +97,40 @@ const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
     }, 0);
   };
 
-  // Function to handle click on the paperclip icon
   const handleUploadClick = (): void => {
     fileInputRef.current?.click();
   };
 
-  // Function to handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const files = e.target.files;
-    if (files && files.length > 0 && onFileUpload) {
-      onFileUpload(files);
-      e.target.value = '';
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    
+    console.log("AdminMessage: Files selected:", fileList.length);
+    
+    const fileArray: Array<any> = [];
+    
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      console.log("AdminMessage: File details:", {
+        name: file.name,
+        size: file.size,
+        type: file.type
+      });
+      
+      // Store the actual File object directly
+      fileArray.push(file);
     }
+    
+    if (onFileUpload) {
+      console.log("AdminMessage: Calling onFileUpload with files:", fileArray.length);
+      onFileUpload(fileArray);
+    }
+    
+    e.target.value = '';
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   // Function to toggle web search
@@ -107,6 +140,28 @@ const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
 
   return (
     <div className="w-full p-2 sm:p-4 bg-white dark:bg-black">
+      {/* Show selected files */}
+      {selectedFiles.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {selectedFiles.map((file, index) => (
+            <div
+              key={`${file.name}-${index}`}
+              className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit"
+            >
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">
+                📎 {file.name}
+              </span>
+              <button
+                onClick={() => removeFile(index)}
+                className="ml-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 text-xs"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      
       <form onSubmit={handleSubmit}>
         <div className="bg-gray-100 dark:bg-[#1e1e1e] rounded-xl sm:rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700/50 relative group">
           <div className="flex flex-col px-3 sm:px-4 py-2 sm:py-3">

@@ -1,341 +1,703 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { FiClock, FiUser, FiActivity, FiTrash2, FiDownload, FiFilter, FiSearch, FiMoon, FiSun, FiAlertCircle, FiCheckCircle, FiXCircle } from 'react-icons/fi';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  IoPersonOutline,
+  IoPeopleOutline,
+  IoTimeOutline,
+  IoSearchOutline,
+  IoFilterOutline,
+  IoChevronDown,
+  IoEllipse,
+  IoArrowBack,
+  IoChatbubblesOutline,
+  IoSunnyOutline,
+  IoMoonOutline
+} from 'react-icons/io5';
+import { useNavigate, useLocation, useLoaderData, useFetcher } from '@remix-run/react';
 import { useTheme } from '~/context/themeContext';
-import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card';
-import { Button } from '~/components/ui/button';
-import { Input } from '~/components/ui/input';
-import { Badge } from '~/components/ui/badge';
+import { getSupabaseClient } from '~/lib/supabase.client';
+import type { Database } from '~/lib/database.types';
 
-interface HistoryItem {
+// Type definitions
+type Profile = Database['public']['Tables']['profiles']['Row'];
+type ChatSession = {
   id: string;
+  user_id: string;
+  gpt_id: string;
+  model?: string;
+  created_at: string;
+  updated_at?: string;
+};
+
+type ChatMessage = {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+};
+
+type CustomGpt = Database['public']['Tables']['custom_gpts']['Row'];
+
+interface ChatSessionWithDetails extends ChatSession {
+  custom_gpts?: CustomGpt | null;
+  chat_messages?: ChatMessage[];
+  profiles?: Profile | null;
+}
+
+interface ActivityUser {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+}
+
+interface ActivityItem {
+  id: string;
+  user: ActivityUser;
   action: string;
-  description: string;
-  user: string;
+  details: string;
   timestamp: string;
-  type: 'success' | 'warning' | 'error' | 'info';
-  details?: string;
+  type: 'chat' | 'user_summary';
+  conversation?: {
+    _id: string;
+    gptId: string;
+    gptName?: string;
+    messages?: ChatMessage[];
+    lastMessage?: string;
+    messageCount: number;
+  };
+  totalUserConversations?: number;
+  isSecondaryUserConvo?: boolean;
+}
+
+interface FilterOptions {
+  actionTypes: {
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
+    settings: boolean;
+    chat: boolean;
+  };
+  dateRange: 'all' | 'today' | 'week' | 'month';
+}
+
+interface LoaderData {
+  user: {
+    id: string;
+    email?: string;
+    user_metadata?: {
+      name?: string;
+      full_name?: string;
+    };
+    role?: string;
+  };
 }
 
 const AdminHistory: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { theme, setTheme } = useTheme();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'success' | 'warning' | 'error' | 'info'>('all');
-  const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('week');
+  const fetcher = useFetcher();
+  const loaderData = useLoaderData<LoaderData>();
+  
+  // Initialize view type from URL parameter or default to 'personal'
+  const queryParams = new URLSearchParams(location.search);
+  const initialView = queryParams.get('view') || 'personal';
 
-  // Mock history data
-  const [historyData] = useState<HistoryItem[]>([
-    {
-      id: '1',
-      action: 'GPT Created',
-      description: 'Created new GPT "Marketing Assistant"',
-      user: 'Admin User',
-      timestamp: '2024-01-15T10:30:00Z',
-      type: 'success',
-      details: 'GPT configured with marketing templates and web browsing capabilities'
+  const [viewType, setViewType] = useState<'personal' | 'team'>(initialView as 'personal' | 'team');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [filteredActivities, setFilteredActivities] = useState<ActivityItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterOpen, setFilterOpen] = useState<boolean>(false);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    actionTypes: {
+      create: true,
+      edit: true,
+      delete: true,
+      settings: true,
+      chat: true,
     },
-    {
-      id: '2',
-      action: 'Settings Updated',
-      description: 'Modified API rate limits',
-      user: 'Admin User',
-      timestamp: '2024-01-15T09:15:00Z',
-      type: 'info',
-      details: 'Rate limit changed from 500 to 1000 requests/hour'
-    },
-    {
-      id: '3',
-      action: 'GPT Deleted',
-      description: 'Deleted GPT "Old Assistant"',
-      user: 'Admin User',
-      timestamp: '2024-01-14T16:45:00Z',
-      type: 'warning',
-      details: 'GPT had 45 conversations and 12 knowledge base files'
-    },
-    {
-      id: '4',
-      action: 'Login Failed',
-      description: 'Failed login attempt detected',
-      user: 'Unknown',
-      timestamp: '2024-01-14T14:20:00Z',
-      type: 'error',
-      details: 'Multiple failed attempts from IP: 192.168.1.100'
-    },
-    {
-      id: '5',
-      action: 'User Added',
-      description: 'Added new team member "John Doe"',
-      user: 'Admin User',
-      timestamp: '2024-01-13T11:00:00Z',
-      type: 'success',
-      details: 'User granted editor permissions'
-    },
-    {
-      id: '6',
-      action: 'Backup Created',
-      description: 'System backup completed successfully',
-      user: 'System',
-      timestamp: '2024-01-13T02:00:00Z',
-      type: 'success',
-      details: 'Backup size: 2.3GB, stored in cloud storage'
-    },
-    {
-      id: '7',
-      action: 'API Limit Exceeded',
-      description: 'API rate limit exceeded',
-      user: 'API Client',
-      timestamp: '2024-01-12T15:30:00Z',
-      type: 'warning',
-      details: 'Client temporarily throttled for 15 minutes'
-    },
-  ]);
+    dateRange: 'all',
+  });
 
-  const toggleTheme = useCallback(() => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
-  }, [theme, setTheme]);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'success':
-        return <FiCheckCircle className="text-green-500" size={16} />;
-      case 'warning':
-        return <FiAlertCircle className="text-orange-500" size={16} />;
-      case 'error':
-        return <FiXCircle className="text-red-500" size={16} />;
-      default:
-        return <FiActivity className="text-blue-500" size={16} />;
-    }
-  };
+  // Get current user from loader data
+  const user = loaderData?.user;
 
-  const getTypeBadgeVariant = (type: string) => {
-    switch (type) {
-      case 'success':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'warning':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
-      case 'error':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-      default:
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-    }
-  };
+  // Fetch real chat history data
+  useEffect(() => {
+    const fetchActivityData = async () => {
+      if (!user?.id) return;
 
-  const formatDate = useCallback((timestamp: string) => {
-    const date = new Date(timestamp);
-    return {
-      date: date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
-      }),
-      time: date.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      })
+      setIsLoading(true);
+      try {
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+          console.error('Supabase client not available');
+          setIsLoading(false);
+          return;
+        }
+
+        // For personal view - fetch user's own chat history
+        if (viewType === 'personal') {
+          try {
+            // First, fetch chat sessions
+            const { data: chatSessions, error: chatSessionsError } = await supabase
+              .from('chat_sessions')
+              .select('*')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: false });
+
+            if (chatSessionsError) {
+              console.error('Error fetching personal sessions:', chatSessionsError);
+              setActivities([]);
+              setFilteredActivities([]);
+              setIsLoading(false);
+              return;
+            }
+
+            if (!chatSessions || chatSessions.length === 0) {
+              setActivities([]);
+              setFilteredActivities([]);
+              setIsLoading(false);
+              return;
+            }
+
+            // Fetch related data for each chat session
+            const formattedHistory: ActivityItem[] = [];
+
+            for (const session of chatSessions) {
+              // Fetch custom GPT details
+              const { data: customGpt } = await supabase
+                .from('custom_gpts')
+                .select('id, name')
+                .eq('id', session.gpt_id)
+                .single();
+
+              // Fetch messages for this session
+              const { data: messages } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .eq('session_id', session.id)
+                .order('created_at', { ascending: true });
+
+              const messageCount = messages?.length || 0;
+              const userMessage = messages?.find(m => m.role === 'user');
+              const lastMessage = messages?.[messages.length - 1];
+
+              formattedHistory.push({
+                id: session.id,
+                user: { 
+                  id: user.id, 
+                  name: user.user_metadata?.name || user.user_metadata?.full_name || 'You', 
+                  email: user.email || '' 
+                },
+                action: 'Chat conversation',
+                details: `with ${customGpt?.name || 'AI Assistant'} (${messageCount} messages)`,
+                timestamp: session.created_at,
+                conversation: {
+                  _id: session.id,
+                  gptId: session.gpt_id,
+                  gptName: customGpt?.name,
+                  messages: messages || [],
+                  lastMessage: lastMessage?.content?.substring(0, 100) || userMessage?.content?.substring(0, 100),
+                  messageCount: messageCount
+                },
+                type: 'chat'
+              });
+            }
+
+            setActivities(formattedHistory);
+            setFilteredActivities(formattedHistory);
+          } catch (error) {
+            console.error('Error in personal view fetch:', error);
+            setActivities([]);
+            setFilteredActivities([]);
+          }
+        }
+        // For team view - fetch all team chat history and show individual conversations
+        else if (viewType === 'team') {
+          try {
+            // Check if user is an admin
+            if (user.role !== 'admin') {
+              setViewType('personal');
+              return;
+            }
+
+            // Fetch all sessions except current user's
+            const { data: chatSessions, error: chatSessionsError } = await supabase
+              .from('chat_sessions')
+              .select('*')
+              .neq('user_id', user.id)
+              .order('created_at', { ascending: false });
+
+            if (chatSessionsError) {
+              console.error('Error fetching team sessions:', chatSessionsError);
+              setActivities([]);
+              setFilteredActivities([]);
+              setIsLoading(false);
+              return;
+            }
+
+            if (!chatSessions || chatSessions.length === 0) {
+              setActivities([]);
+              setFilteredActivities([]);
+              setIsLoading(false);
+              return;
+            }
+
+            // Fetch related data for each session
+            const formattedHistory: ActivityItem[] = [];
+
+            for (const session of chatSessions) {
+              // Fetch user profile
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('id, full_name, email')
+                .eq('id', session.user_id)
+                .single();
+
+              // Fetch custom GPT details
+              const { data: customGpt } = await supabase
+                .from('custom_gpts')
+                .select('id, name')
+                .eq('id', session.gpt_id)
+                .single();
+
+              // Fetch messages for this session
+              const { data: messages } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .eq('session_id', session.id)
+                .order('created_at', { ascending: true });
+
+              const messageCount = messages?.length || 0;
+              const userMessage = messages?.find(m => m.role === 'user');
+              const lastMessage = messages?.[messages.length - 1];
+
+              // Get user name from profile or use fallback
+              const userName = profile?.full_name || `User ${session.user_id.substring(0, 8)}`;
+              const userEmail = profile?.email || '';
+              
+              formattedHistory.push({
+                id: session.id,
+                user: {
+                  id: session.user_id,
+                  name: userName,
+                  email: userEmail
+                },
+                action: 'Chat conversation',
+                details: `with ${customGpt?.name || 'AI Assistant'} (${messageCount} messages)`,
+                timestamp: session.created_at,
+                conversation: {
+                  _id: session.id,
+                  gptId: session.gpt_id,
+                  gptName: customGpt?.name,
+                  messages: messages || [],
+                  lastMessage: lastMessage?.content?.substring(0, 100) || userMessage?.content?.substring(0, 100),
+                  messageCount: messageCount
+                },
+                type: 'chat'
+              });
+            }
+
+            setActivities(formattedHistory);
+            setFilteredActivities(formattedHistory);
+          } catch (error) {
+            console.error("Team history view error:", error);
+            setViewType('personal');
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching activity data:", error);
+        setActivities([]);
+        setFilteredActivities([]);
+      } finally {
+        setIsLoading(false);
+      }
     };
-  }, []);
 
-  const filteredHistory = useMemo(() => {
-    let filtered = historyData;
+    fetchActivityData();
+  }, [user, viewType]);
 
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(item =>
-        item.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.user.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filter activities based on search query and filter options
+  useEffect(() => {
+    let filtered = [...activities];
+
+    // Apply search filter
+    if (searchQuery) {
+      filtered = filtered.filter(activity =>
+        activity.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        activity.details.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (activity.user && activity.user.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (activity.conversation?.lastMessage && activity.conversation.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (activity.conversation?.gptName && activity.conversation.gptName.toLowerCase().includes(searchQuery.toLowerCase()))
       );
     }
 
-    // Filter by type
-    if (filterType !== 'all') {
-      filtered = filtered.filter(item => item.type === filterType);
+    // Apply action type filters
+    filtered = filtered.filter(activity => {
+      const actionType = getActionType(activity.action);
+      return filterOptions.actionTypes[actionType as keyof typeof filterOptions.actionTypes];
+    });
+
+    // Apply date range filter
+    if (filterOptions.dateRange !== 'all') {
+      const now = new Date();
+      let cutoffDate: Date;
+
+      if (filterOptions.dateRange === 'today') {
+        cutoffDate = new Date(now.setHours(0, 0, 0, 0));
+      } else if (filterOptions.dateRange === 'week') {
+        cutoffDate = new Date(now.setDate(now.getDate() - 7));
+      } else if (filterOptions.dateRange === 'month') {
+        cutoffDate = new Date(now.setMonth(now.getMonth() - 1));
+      } else {
+        cutoffDate = new Date();
+      }
+
+      filtered = filtered.filter(activity => new Date(activity.timestamp) >= cutoffDate);
     }
 
-    // Filter by period
-    const now = new Date();
-    if (selectedPeriod !== 'all') {
-      filtered = filtered.filter(item => {
-        const itemDate = new Date(item.timestamp);
-        const diffTime = now.getTime() - itemDate.getTime();
-        const diffDays = diffTime / (1000 * 3600 * 24);
+    setFilteredActivities(filtered);
+  }, [searchQuery, filterOptions, activities]);
 
-        switch (selectedPeriod) {
-          case 'today':
-            return diffDays < 1;
-          case 'week':
-            return diffDays < 7;
-          case 'month':
-            return diffDays < 30;
-          default:
-            return true;
-        }
+  // Helper function to determine action type
+  const getActionType = (action: string): string => {
+    if (action.includes('Chat conversation')) return 'chat';
+    if (action.includes('Created') || action.includes('Added')) return 'create';
+    if (action.includes('Edited') || action.includes('Updated') || action.includes('Modified')) return 'edit';
+    if (action.includes('Deleted') || action.includes('Removed')) return 'delete';
+    if (action.includes('Changed settings') || action.includes('Updated settings')) return 'settings';
+    return 'chat';
+  };
+
+  // Handle chat history item click
+  const handleChatHistoryClick = (conversation: ActivityItem['conversation']) => {
+    if (conversation && conversation.gptId) {
+      navigate(`/admin/chat/${conversation.gptId}?loadHistory=true&conversationId=${conversation._id}`);
+    }
+  };
+
+  // Format the timestamp
+  const formatTimestamp = (timestamp: string): string => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
+
+    if (diffDays === 0) {
+      if (diffHours < 1) {
+        return 'Just now';
+      } else if (diffHours < 2) {
+        return '1 hour ago';
+      } else if (diffHours < 24) {
+        return `${diffHours} hours ago`;
+      }
+      return 'Today';
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
       });
     }
+  };
 
-    return filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [historyData, searchTerm, filterType, selectedPeriod]);
+  // Toggle filter options
+  const toggleFilterOption = (type: keyof FilterOptions['actionTypes'], value: boolean) => {
+    setFilterOptions(prev => ({
+      ...prev,
+      actionTypes: {
+        ...prev.actionTypes,
+        [type]: value
+      }
+    }));
+  };
 
-  const handleExport = useCallback(() => {
-    const csvContent = [
-      ['Action', 'Description', 'User', 'Timestamp', 'Type'],
-      ...filteredHistory.map(item => [
-        item.action,
-        item.description,
-        item.user,
-        item.timestamp,
-        item.type
-      ])
-    ].map(row => row.join(',')).join('\n');
+  // Set date range filter
+  const setDateRangeFilter = (range: FilterOptions['dateRange']) => {
+    setFilterOptions(prev => ({
+      ...prev,
+      dateRange: range
+    }));
+    setFilterOpen(false);
+  };
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `admin-history-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  }, [filteredHistory]);
-
-  const clearHistory = useCallback(() => {
-    if (window.confirm('Are you sure you want to clear all history? This action cannot be undone.')) {
-      // Here you would make the API call to clear history
-      alert('History cleared successfully!');
+  // Click outside hook for filter dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setFilterOpen(false);
+      }
     }
-  }, []);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [filterDropdownRef]);
+
+  // When view type changes, update URL
+  useEffect(() => {
+    const newUrl = `/admin/history?view=${viewType}`;
+    navigate(newUrl, { replace: true });
+  }, [viewType, navigate]);
+
+  // Toggle theme function
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    
+    // Update theme in server via form submission
+    const formData = new FormData();
+    formData.append('intent', 'updateTheme');
+    formData.append('theme', newTheme);
+    
+    fetcher.submit(formData, { method: 'POST', action: '/admin/setting' });
+  };
+
+  // Determine if team view is available
+  const isTeamViewAvailable = user?.role === 'admin';
+  const isDarkMode = theme === 'dark';
+
+  // CSS for hiding scrollbars
+  const scrollbarHideStyles = `
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .hide-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  `;
 
   return (
-    <div className={`flex flex-col h-full ${theme === 'dark' ? 'dark' : ''} bg-gray-50 dark:bg-neutral-900 text-black dark:text-white p-4 sm:p-6 overflow-hidden rounded-lg`}>
-      {/* Header */}
-      <div className="mb-4 md:mb-6 flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+    <div className={`flex flex-col h-full ${isDarkMode ? 'dark' : ''} bg-white dark:bg-black text-gray-900 dark:text-gray-100 overflow-hidden`}>
+      {/* Add hidden scrollbar styles */}
+      <style>{scrollbarHideStyles}</style>
+
+      {/* Header section */}
+      <div className="px-6 pt-6 pb-5 flex-shrink-0 border-b border-gray-300 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div className="text-center sm:text-left">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Activity History</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Activity History</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Track all system activities and user actions
+            {viewType === 'personal' 
+              ? "Your chat conversations and activity" 
+              : "Team conversations and activity"}
           </p>
         </div>
-        <div className="flex items-center gap-2 self-center sm:self-auto mt-3 sm:mt-0">
-          <Button
-            onClick={toggleTheme}
-            variant="outline"
-            size="icon"
-            className="rounded-full"
-            title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          >
-            {theme === 'dark' ? <FiSun size={20} /> : <FiMoon size={20} />}
-          </Button>
-          <Button
-            onClick={handleExport}
-            variant="outline"
-            className="flex items-center gap-2"
-          >
-            <FiDownload size={16} />
-            Export
-          </Button>
-          <Button
-            onClick={clearHistory}
-            variant="outline"
-            className="flex items-center gap-2 text-red-600 hover:text-red-700 dark:text-red-400"
-          >
-            <FiTrash2 size={16} />
-            Clear
-          </Button>
+        <button
+          onClick={toggleTheme}
+          className={`p-2 rounded-full transition-colors self-center sm:self-auto mt-3 sm:mt-0 ${
+            isDarkMode 
+              ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' 
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+          aria-label={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        >
+          {isDarkMode ? <IoSunnyOutline size={20} /> : <IoMoonOutline size={20} />}
+        </button>
+      </div>
+
+      {/* Controls section */}
+      <div className="px-6 py-4 flex-shrink-0 border-b border-gray-300 dark:border-gray-800">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          {/* View switcher */}
+          <div className="inline-flex items-center p-1 rounded-lg bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 self-center sm:self-start">
+            <button
+              onClick={() => setViewType('personal')}
+              className={`flex items-center px-3 py-1.5 rounded text-sm transition-all ${viewType === 'personal'
+                  ? 'bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-800'
+                }`}
+            >
+              <IoPersonOutline size={16} className="mr-1.5" />
+              <span>Personal</span>
+            </button>
+            <button
+              onClick={() => isTeamViewAvailable ? setViewType('team') : undefined}
+              className={`flex items-center px-3 py-1.5 rounded text-sm transition-all ${viewType === 'team'
+                  ? 'bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                  : isTeamViewAvailable
+                    ? 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-800'
+                    : 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                }`}
+              title={isTeamViewAvailable ? 'View team history' : 'Requires admin privileges'}
+            >
+              <IoPeopleOutline size={16} className="mr-1.5" />
+              <span>Team</span>
+            </button>
+          </div>
+
+          {/* Search and filter */}
+          <div className="flex flex-1 sm:justify-end max-w-lg gap-2 self-center w-full sm:w-auto">
+            <div className="relative flex-1 sm:max-w-xs">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <IoSearchOutline className="text-gray-400 dark:text-gray-500" size={18} />
+              </div>
+              <input
+                type="text"
+                className="w-full pl-10 pr-3 py-2 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-900 dark:text-gray-100 text-sm placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 focus:border-gray-500"
+                placeholder="Search conversations..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="relative" ref={filterDropdownRef}>
+              <button
+                ref={filterButtonRef}
+                onClick={() => setFilterOpen(!filterOpen)}
+                className="flex items-center px-3 py-2 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-600 transition-colors"
+              >
+                <IoFilterOutline size={16} className="mr-1.5" />
+                <span>Filter</span>
+                <IoChevronDown size={14} className={`ml-1 transition-transform ${filterOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Filter Dropdown */}
+              {filterOpen && (
+                <div
+                  className="absolute w-60 rounded-lg bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 shadow-2xl z-20 p-4"
+                  style={{
+                    right: 0,
+                    top: filterButtonRef.current &&
+                      window.innerHeight - filterButtonRef.current.getBoundingClientRect().bottom < 300 &&
+                      filterButtonRef.current.getBoundingClientRect().top > 300
+                      ? `-${300 + 8}px`
+                      : 'calc(100% + 8px)',
+                  }}
+                >
+                  <div className="mb-4">
+                    <h3 className="text-gray-700 dark:text-gray-300 font-medium text-sm mb-2">Action Types</h3>
+                    <div className="space-y-1.5">
+                      {Object.keys(filterOptions.actionTypes).map((type) => (
+                        <label key={type} className="flex items-center text-sm">
+                          <input
+                            type="checkbox"
+                            className="form-checkbox h-4 w-4 rounded bg-gray-200 dark:bg-gray-700 border-gray-400 dark:border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-900"
+                            checked={filterOptions.actionTypes[type as keyof typeof filterOptions.actionTypes]}
+                            onChange={(e) => toggleFilterOption(type as keyof typeof filterOptions.actionTypes, e.target.checked)}
+                          />
+                          <span className="ml-2 text-gray-700 dark:text-gray-300 capitalize">{type}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-gray-700 dark:text-gray-300 font-medium text-sm mb-2">Time Period</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['today', 'week', 'month', 'all'] as const).map((range) => (
+                        <button
+                          key={range}
+                          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${filterOptions.dateRange === range
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200'
+                            }`}
+                          onClick={() => setDateRangeFilter(range)}
+                        >
+                          {range === 'all' ? 'All Time' : `Last ${range}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-4 flex-shrink-0">
-        <div className="relative flex-1 max-w-md">
-          <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Search activities..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as any)}
-          className="px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300"
-        >
-          <option value="all">All Types</option>
-          <option value="success">Success</option>
-          <option value="warning">Warning</option>
-          <option value="error">Error</option>
-          <option value="info">Info</option>
-        </select>
-
-        <select
-          value={selectedPeriod}
-          onChange={(e) => setSelectedPeriod(e.target.value as any)}
-          className="px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300"
-        >
-          <option value="all">All Time</option>
-          <option value="today">Today</option>
-          <option value="week">This Week</option>
-          <option value="month">This Month</option>
-        </select>
-      </div>
-
-      {/* History List */}
-      <div className="flex-1 overflow-y-auto">
-        {filteredHistory.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
-            <FiClock size={48} className="mb-4" />
-            <h3 className="text-lg font-medium mb-2">No activity found</h3>
-            <p className="text-sm text-center">
-              {searchTerm ? 'Try adjusting your search terms or filters' : 'No activity recorded yet'}
+      {/* Timeline content */}
+      <div className="flex-1 overflow-y-auto py-6 px-4 flex justify-center hide-scrollbar">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500 animate-spin"></div>
+          </div>
+        ) : filteredActivities.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-500 px-4">
+            <div className="border-2 border-gray-300 dark:border-gray-800 rounded-full p-4 mb-4">
+              <IoChatbubblesOutline size={32} className="text-gray-400 dark:text-gray-600" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-1">No Conversations Found</h3>
+            <p className="text-sm max-w-sm">
+              {searchQuery || filterOptions.dateRange !== 'all' || !Object.values(filterOptions.actionTypes).every(v => v)
+                ? "No conversations match your current filters. Try adjusting your search or filter criteria."
+                : viewType === 'team'
+                  ? "No team conversations found. Team member conversations will appear here."
+                  : "No conversations recorded yet. Your chat history will appear here once you start chatting."
+              }
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {filteredHistory.map((item) => {
-              const dateTime = formatDate(item.timestamp);
-              return (
-                <Card key={item.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 mt-1">
-                        {getTypeIcon(item.type)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">
-                              {item.action}
-                            </h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                              {item.description}
-                            </p>
-                          </div>
-                          <Badge className={`${getTypeBadgeVariant(item.type)} px-2 py-1 text-xs font-medium rounded-full`}>
-                            {item.type}
-                          </Badge>
-                        </div>
-                        
-                        <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                          <div className="flex items-center gap-1">
-                            <FiUser size={12} />
-                            <span>{item.user}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <FiClock size={12} />
-                            <span>{dateTime.date} at {dateTime.time}</span>
-                          </div>
-                        </div>
-                        
-                        {item.details && (
-                          <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs text-gray-600 dark:text-gray-400">
-                            {item.details}
-                          </div>
+          <div className="w-full max-w-4xl">
+            <div className="space-y-3 relative border-l border-gray-300 dark:border-gray-800 ml-4">
+              {filteredActivities.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="relative bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-750 border border-gray-300 dark:border-gray-700 rounded-lg p-4 ml-4 transition-colors cursor-pointer group"
+                  onClick={() => {
+                    if (activity.conversation) {
+                      handleChatHistoryClick(activity.conversation);
+                    }
+                  }}
+                >
+                  <div className="absolute -left-[10px] top-[50%] transform -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600">
+                    <IoChatbubblesOutline size={10} className="text-blue-500" />
+                  </div>
+
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      {/* User info */}
+                      <div className="mb-1.5 flex items-center">
+                        <span className="font-semibold text-gray-900 dark:text-white">
+                          {viewType === 'personal' ? 'You' : activity.user?.name || 'Team Member'}
+                        </span>
+                        {viewType === 'team' && activity.user?.email && (
+                          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                            {activity.user.email}
+                          </span>
                         )}
                       </div>
+
+                      {/* Conversation details */}
+                      <p className="text-sm">
+                        <span className="text-gray-700 dark:text-gray-300">{activity.action}</span>
+                        <span className="font-medium text-gray-900 dark:text-white ml-1">
+                          {activity.details}
+                        </span>
+                      </p>
+
+                      {/* Last message preview */}
+                      {activity.conversation?.lastMessage && (
+                        <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded p-2 text-xs text-gray-600 dark:text-gray-300">
+                          <div className="line-clamp-2">
+                            <span className="font-semibold">Preview: </span>
+                            {activity.conversation.lastMessage}
+                            {activity.conversation.lastMessage.length >= 100 && '...'}
+                          </div>
+                          <div className="mt-1 text-gray-500 dark:text-gray-400 text-[10px] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            Click to view full conversation
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+
+                    <div className="text-xs text-gray-500 dark:text-gray-500 whitespace-nowrap flex-shrink-0">
+                      {formatTimestamp(activity.timestamp)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

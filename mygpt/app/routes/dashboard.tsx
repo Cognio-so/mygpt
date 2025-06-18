@@ -1,81 +1,44 @@
-import type { LoaderFunctionArgs } from "@remix-run/cloudflare";
-import { json, redirect } from "@remix-run/cloudflare";
-import { useLoaderData } from "@remix-run/react";
-import { requireAuth } from "~/lib/auth.server";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
-import { AdminLayout } from "~/components/admin/AdminLayout";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/cloudflare";
+import { json } from "@remix-run/cloudflare";
+import { getUserWithProfile } from "~/lib/auth.server";
+import { redirect } from "@remix-run/cloudflare";
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Dashboard Redirect" },
+    { name: "robots", content: "noindex, nofollow" },
+  ];
+};
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
-  const { user, response } = await requireAuth(request, env);
+  const { user, profile, response } = await getUserWithProfile(request, env);
 
-  return json({
-    user,
-  }, {
-    headers: response.headers,
-  });
-}
+  if (!user) {
+    return redirect('/login', {
+      headers: response.headers,
+    });
+  }
 
-export async function action({ request, context }: LoaderFunctionArgs) {
-  const env = context.cloudflare.env;
-  const { supabase, response } = createSupabaseServerClient(request, env);
-  
-  await supabase.auth.signOut();
-  
-  return redirect('/login', {
-    headers: response.headers,
-  });
+  // Redirect based on role
+  if (profile?.role === 'admin') {
+    return redirect('/admin', {
+      headers: response.headers,
+    });
+  } else {
+    return redirect('/user', {
+      headers: response.headers,
+    });
+  }
 }
 
 export default function Dashboard() {
-  const { user } = useLoaderData<typeof loader>();
-
   return (
-    <AdminLayout activePage="dashboard">
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Welcome back to your MyGpt AI Dashboard.
-          </p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Welcome</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">Hello!</div>
-              <p className="text-xs text-muted-foreground">
-                {user.email}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>User Information</CardTitle>
-            <CardDescription>
-              Your account details and session information.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-2">
-              <div className="grid grid-cols-3 items-center gap-4">
-                <label className="text-sm font-medium">Email:</label>
-                <span className="col-span-2 text-sm text-muted-foreground">{user.email}</span>
-              </div>
-              <div className="grid grid-cols-3 items-center gap-4">
-                <label className="text-sm font-medium">User ID:</label>
-                <span className="col-span-2 text-sm text-muted-foreground font-mono">{user.id}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold mb-4">Redirecting...</h1>
+        <p className="text-gray-600">Please wait while we redirect you to the appropriate dashboard.</p>
       </div>
-    </AdminLayout>
+    </div>
   );
 } 
