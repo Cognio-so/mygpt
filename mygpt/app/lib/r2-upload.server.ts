@@ -36,7 +36,7 @@ export class R2Uploader {
         fileType: typeof file,
         fileName: file?.name,
         fileSize: file?.size,
-        fileType: file?.type
+        mimeType: file?.type
       });
       
       // Fix for missing filename

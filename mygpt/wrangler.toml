@@ -2,7 +2,7 @@
 name = "mygpt"
 
 main = "./server.ts"
-workers_dev = false
+workers_dev = true
 # https://developers.cloudflare.com/workers/platform/compatibility-dates
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -14,24 +14,18 @@ directory = "./build/client"
 [build]
 command = "npm run build"
 
+# Use production variables by default
 [vars]
 SUPABASE_URL = "https://evszbtmxggkuttbkvgso.supabase.co"
 SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2c3pidG14Z2drdXR0Ymt2Z3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk4ODY3MDksImV4cCI6MjA2NTQ2MjcwOX0.hghvNFv84Iy2dzaVOqYlXzH-amraNxEmyREa6Uyifrs"
-VITE_APP_URL = "http://localhost:5173"
-PYTHON_BACKEND_URL = "http://localhost:8000"
+VITE_APP_URL = "https://mygpt.asset-7a1.workers.dev"
+PYTHON_BACKEND_URL = "https://customgpt-python.onrender.com"
+NODE_ENV = "production"
 
 [env.development.vars]
 NODE_ENV = "development"
 VITE_APP_URL = "http://localhost:5173"
 PYTHON_BACKEND_URL = "http://localhost:8000"
-
-[env.production.vars]
-NODE_ENV = "production"
-VITE_APP_URL = "https://mygpt.asset-7a1.workers.dev"
-PYTHON_BACKEND_URL = "https://customgpt-python.onrender.com"
-
-# Environment variables will be loaded from .dev.vars for local development
-# For production, set these in Cloudflare dashboard or via wrangler secret
 
 [[r2_buckets]]
 binding = "R2_BUCKET"
