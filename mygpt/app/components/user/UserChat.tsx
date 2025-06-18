@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
+import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
+import UserMessageInput from './UserMessageInput';
 import { IoPersonCircleOutline, IoSettingsOutline, IoPersonOutline, IoArrowBack, IoClose, IoAddCircleOutline } from 'react-icons/io5';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { SiOpenai, SiGooglegemini } from 'react-icons/si';
 import { FaRobot } from 'react-icons/fa6';
 import { BiLogoMeta } from 'react-icons/bi';
-import { RiOpenaiFill, RiSunFill, RiMoonFill } from 'react-icons/ri';
 import { TbRouter } from 'react-icons/tb';
 import { useTheme } from '~/context/themeContext';
-import UserMessageInput from './UserMessageInput';
 import type { FileAttachment } from '~/lib/database.types';
 
 // Define interfaces
@@ -48,19 +47,12 @@ interface FileObject {
   name: string;
   size?: number;
   type?: string;
-  url?: string;
+  _fileRef?: File; // Store reference to actual File object
 }
 
 interface LoadingState {
   message: boolean;
-}
-
-interface UploadedFile {
-  id: string;
-  fileName: string;
-  fileUrl: string;
-  fileSize: number;
-  fileType: string;
+  history: boolean;
 }
 
 const MarkdownStyles = () => (
@@ -160,7 +152,7 @@ const MarkdownStyles = () => (
 
 const modelIcons: { [key: string]: JSX.Element } = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
-  'GPT-4o': <RiOpenaiFill className="text-green-500" size={18} />,
+  'GPT-4o': <TbRouter className="text-green-500" size={18} />,
   'GPT-4o-mini': <SiOpenai className="text-green-400" size={16} />,
   'Gemini-flash-2.5': <SiGooglegemini className="text-blue-400" size={16} />,
   'Gemini-pro-2.5': <SiGooglegemini className="text-blue-600" size={16} />,
@@ -193,22 +185,28 @@ const getFileIcon = (fileName: string) => {
 
 const UserChat: React.FC = () => {
   const { gptData, user } = useLoaderData<{ gptData: GptData; user: User }>();
-  const fetcher = useFetcher();
-  const uploadFetcher = useFetcher<{ files?: FileAttachment[]; error?: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
-  const [loading, setLoading] = useState<LoadingState>({ message: false });
+  const [loading, setLoading] = useState<LoadingState>({ message: false, history: false });
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>([]);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(gptData?.capabilities?.webBrowsing || false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(gptData?.capabilities?.webBrowsing || false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const conversationLoaded = useRef<boolean>(false);
+
+  const conversationId = searchParams.get('conversationId');
+
+  useEffect(() => {
+    // This effect is not used in the user chat, but kept for consistency with admin
+  }, [conversationId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -218,151 +216,100 @@ const UserChat: React.FC = () => {
     scrollToBottom();
   }, [messages, streamingMessage]);
 
-  // Monitor system theme changes
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    // This ensures the theme is properly applied when the component mounts
-    const htmlElement = document.documentElement;
-    if (theme === 'dark') {
-      htmlElement.classList.add('dark');
-    } else {
-      htmlElement.classList.remove('dark');
-    }
-    
-  }, [theme]);
-
-  const handleFileUpload = async (files: FileObject[]) => {
-    setUploadedFiles(prev => [...prev, ...files]);
-  };
-
-  const handleChatSubmit = async (message: string, files?: FileObject[]) => {
+  const handleChatSubmit = async (message: string, files: FileObject[] = []) => {
     console.log("🚀 UserChat: handleChatSubmit called", { 
       messageLength: message.length, 
-      filesCount: files?.length || 0, 
-      uploadedFilesCount: uploadedFiles.length 
+      filesCount: files.length,
     });
 
-    if (!message.trim() && (!files || files.length === 0)) {
+    if (!message.trim() && files.length === 0) {
       console.log("❌ UserChat: No message or files provided");
       return;
     }
 
-    // Upload files to Python backend first if any
-    let uploadedFileUrls: FileAttachment[] = [];
-    const allFiles = [...(files || []), ...uploadedFiles];
-    
-    console.log("📁 UserChat: Total files to process:", allFiles.length);
-    
-    if (allFiles.length > 0) {
-      setLoading({ message: true });
+    let uploadedFileAttachments: FileAttachment[] = [];
+    if (files.length > 0) {
+      setLoading(prev => ({ ...prev, message: true }));
       setIsUploading(true);
       
       try {
-        console.log("⬆️ UserChat: Starting file upload to Python backend...");
-        const formData = new FormData();
-        
-        // Add files to FormData
-        allFiles.forEach((file, index) => {
-          console.log(`📄 UserChat: Adding file ${index + 1}:`, {
-            name: file.name,
-            size: file.size,
-            type: file.type
-          });
-          formData.append('files', file as any);
+        const uploadFormData = new FormData();
+        files.forEach(file => {
+          uploadFormData.append('files', file as any);
         });
+
+        const simulateProgress = () => {
+          let progress = 0;
+          const interval = setInterval(() => {
+            progress += 5;
+            if (progress > 95) clearInterval(interval);
+            setUploadProgress(progress);
+          }, 100);
+          return () => clearInterval(interval);
+        };
+        const stopProgress = simulateProgress();
         
-        // Add required parameters for Python backend
-        formData.append('user_email', user?.email || '');
-        formData.append('gpt_id', gptData._id);
-        formData.append('is_user_document', 'true'); // These are user-specific documents for chat
-        
-        // Upload files via Remix API route (which forwards to Python backend)
-        console.log("🌐 UserChat: Making upload request to Remix API");
-        const uploadResponse = await fetch('/api/upload-documents', {
+        const uploadResponse = await fetch('/api/upload', {
           method: 'POST',
-          body: formData,
+          body: uploadFormData,
         });
+
+        stopProgress();
+        setUploadProgress(100);
         
-        console.log("📥 UserChat: Upload response status:", uploadResponse.status);
-        
-        if (uploadResponse.ok) {
-          const uploadResult = await uploadResponse.json() as { upload_results?: { filename: string; stored_url_or_key: string; status: string }[] };
-          // Extract file URLs from Python backend response
-          if (uploadResult.upload_results) {
-            uploadedFileUrls = uploadResult.upload_results
-              .filter((result: any) => result.status === 'success')
-              .map((result: any) => ({
-                name: result.filename,
-                url: result.stored_url_or_key,
-                size: 0,
-                type: 'application/octet-stream'
-              }));
-          }
-          console.log("✅ UserChat: Files uploaded successfully:", uploadedFileUrls);
-        } else {
-          const errorData = await uploadResponse.json();
-          console.error("❌ UserChat: Upload failed:", errorData);
-          console.warn("⚠️ UserChat: Continuing without file uploads due to upload failure");
-        }
+        if (!uploadResponse.ok) throw new Error('File upload failed');
+
+        const uploadResult = await uploadResponse.json() as { files: FileAttachment[] };
+        uploadedFileAttachments = uploadResult.files || [];
+        console.log("✅ UserChat: Files uploaded successfully:", uploadedFileAttachments);
       } catch (uploadError) {
         console.error("❌ UserChat: File upload error:", uploadError);
-        console.warn("⚠️ UserChat: Continuing without file uploads due to upload error");
       } finally {
         setIsUploading(false);
-        setUploadProgress(0);
+        setTimeout(() => setUploadProgress(0), 1000);
       }
     }
 
-    // Add user message to UI immediately (no Supabase saving here)
     const newUserMessage: Message = {
       id: Date.now(),
       role: 'user',
       content: message,
       timestamp: new Date(),
-      files: uploadedFileUrls
+      files: uploadedFileAttachments,
     };
-
-    console.log("💬 UserChat: Adding user message:", { 
-      id: newUserMessage.id, 
-      filesCount: uploadedFileUrls.length 
-    });
 
     setMessages(prev => [...prev, newUserMessage]);
     setUploadedFiles([]);
-    setLoading({ message: true });
+    setLoading(prev => ({ ...prev, message: false }));
+
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
-      const formData = new FormData();
-      formData.append('intent', 'chat');
-      formData.append('message', message);
-      formData.append('gptId', gptData._id);
-      formData.append('files', JSON.stringify(uploadedFileUrls));
-      formData.append('webSearch', webSearchEnabled.toString());
-      formData.append('model', gptData.model || 'gpt-4o');
-      formData.append('instructions', gptData.instructions || '');
+      const chatFormData = new FormData();
+      chatFormData.append('intent', 'chat');
+      chatFormData.append('message', message);
+      chatFormData.append('gptId', gptData._id);
+      chatFormData.append('model', gptData.model || 'gpt-4o');
+      chatFormData.append('instructions', gptData.instructions || '');
+      chatFormData.append('webSearch', webSearchEnabled.toString());
+      chatFormData.append('files', JSON.stringify(uploadedFileAttachments));
       
-      if (conversationId) {
-        formData.append('conversationId', conversationId);
-        console.log("🔗 UserChat: Using existing conversation ID:", conversationId);
-      }
+      if (conversationId) chatFormData.append('conversationId', conversationId);
 
       const response = await fetch('/user/chat-api', {
         method: 'POST',
-        body: formData,
+        body: chatFormData,
+        signal: abortController.signal
       });
 
-      if (!response.ok) {
-        const errorData = await response.json() as { error?: string };
-        throw new Error(errorData.error || 'Failed to send message');
+      if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(JSON.parse(errorText).error || 'Failed to send message');
       }
 
-      // Handle streaming response
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let currentStreamingMessage: Message = {
@@ -374,31 +321,33 @@ const UserChat: React.FC = () => {
       };
 
       setStreamingMessage(currentStreamingMessage);
-      setLoading({ message: false });
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) {
-            if (buffer) {
-              processChunk(buffer);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'content' && data.data) {
+                currentStreamingMessage.content += data.data;
+                setStreamingMessage({ ...currentStreamingMessage });
+              } else if (data.type === 'done') {
+                currentStreamingMessage.isStreaming = false;
+                setMessages(prev => [...prev, currentStreamingMessage]);
+                setStreamingMessage(null);
+                return;
+              }
+            } catch (e) {
+              console.warn('⚠️ UserChat: Error parsing SSE data:', e, 'Chunk:', line);
             }
-            break;
-          }
-
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-          
-          const lines = buffer.split('\n\n');
-          buffer = lines.pop() || '';
-          
-          for (const line of lines) {
-            processChunk(line);
           }
         }
-      } catch (streamError) {
-        console.error('Stream processing error:', streamError);
       }
 
       if (currentStreamingMessage.content && currentStreamingMessage.isStreaming) {
@@ -406,71 +355,49 @@ const UserChat: React.FC = () => {
         setStreamingMessage(null);
         setMessages(prev => [...prev, currentStreamingMessage]);
       }
-
-      // Process chunk function - moved inside to access currentStreamingMessage
-      function processChunk(chunk: string) {
-        if (!chunk.trim()) return;
-        
-        const dataMatch = chunk.match(/^data: (.*)/m);
-        if (!dataMatch) return;
-        
-        try {
-          const data = JSON.parse(dataMatch[1]);
-          
-          if (data.error) {
-            throw new Error(data.error);
-          }
-
-          if (data.type === 'content' || data.type === 'chunk') {
-            const newContent = data.data || '';
-            currentStreamingMessage = {
-              ...currentStreamingMessage,
-              content: currentStreamingMessage.content + newContent,
-              isStreaming: true
-            };
-            setStreamingMessage({ ...currentStreamingMessage });
-          } else if (data.type === 'end' || data.type === 'done') {
-            currentStreamingMessage = {
-              ...currentStreamingMessage,
-              isStreaming: false
-            };
-            setStreamingMessage(null);
-            setMessages(prev => [...prev, currentStreamingMessage]);
-          }
-        } catch (parseError) {
-          console.warn('Error parsing SSE data:', parseError);
-        }
-      }
-
     } catch (error) {
-      console.error('Error sending message:', error);
-      const errorMessage: Message = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: 'Sorry, there was an error processing your message. Please try again.',
-        timestamp: new Date(),
-        isError: true
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      setStreamingMessage(null);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('ℹ️ UserChat: Chat request was aborted');
+        return;
+      }
+      console.error('❌ UserChat: Error sending message:', error);
     } finally {
-      setLoading({ message: false });
+      setLoading(prev => ({ ...prev, message: false }));
+      abortControllerRef.current = null;
     }
   };
 
+  const handleFileUpload = (incomingFiles: FileObject[]) => {
+    setUploadedFiles(prev => [...prev, ...incomingFiles]);
+  };
+
+  const handleRemoveUploadedFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleNewChat = () => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    navigate(`/user/chat/${gptData._id}`);
     setMessages([]);
     setStreamingMessage(null);
     setUploadedFiles([]);
+    conversationLoaded.current = false;
   };
 
   const handleGoBack = () => {
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     navigate('/user');
   };
 
   const toggleTheme = () => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
   };
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, []);
 
   const showWebSearchToggle = gptData?.capabilities?.webBrowsing || false;
 
@@ -480,22 +407,12 @@ const UserChat: React.FC = () => {
       <div className={`flex flex-col h-screen ${theme === 'dark' ? 'dark' : ''} bg-white dark:bg-black text-black dark:text-white overflow-hidden`}>
         <div className="flex-shrink-0 bg-white dark:bg-black px-4 py-3 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center space-x-2">
-            <button
-              onClick={handleGoBack}
-              className="text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center justify-center w-10 h-10"
-              aria-label="Go back"
-            >
+            <button onClick={handleGoBack} className="text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center justify-center w-10 h-10" aria-label="Go back">
               <IoArrowBack size={20} />
             </button>
-            
-            <button
-              className="text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center justify-center w-10 h-10"
-              aria-label="New Chat"
-              onClick={handleNewChat}
-            >
+            <button className="text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center justify-center w-10 h-10" aria-label="New Chat" onClick={handleNewChat}>
               <IoAddCircleOutline size={24} /> 
             </button>
-
             {gptData && (
               <div className="ml-2 text-sm md:text-base font-medium flex items-center">
                 <span className="mr-2">{gptData.name}</span>
@@ -509,282 +426,94 @@ const UserChat: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            <button 
+              onClick={toggleTheme} 
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" 
               title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
             >
-              {theme === 'dark' ? 
-                <RiSunFill size={20} className="text-yellow-400" /> : 
-                <RiMoonFill size={20} className="text-gray-700" />
-              }
+              {theme === 'dark' ? (
+                <svg 
+                  viewBox="0 0 24 24" 
+                  fill="currentColor" 
+                  className="w-5 h-5 text-yellow-400"
+                >
+                  <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-8.313-12.454z" />
+                </svg>
+              ) : (
+                <svg 
+                  viewBox="0 0 24 24" 
+                  fill="currentColor" 
+                  className="w-5 h-5 text-gray-700"
+                >
+                  <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM21.75 12a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5H21a.75.75 0 0 1 .75.75ZM17.834 18.894a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 1 0-1.061 1.06l1.59 1.591ZM12 21.75a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 1.5 0V21a.75.75 0 0 1-.75.75ZM5.106 17.834a.75.75 0 0 0 1.06 1.06l1.591-1.59a.75.75 0 1 0-1.06-1.061l-1.591 1.59ZM2.25 12a.75.75 0 0 1 .75-.75h2.25a.75.75 0 0 1 0 1.5H3a.75.75 0 0 1-.75-.75ZM6.166 5.106a.75.75 0 0 0-1.06 1.06l1.59 1.591a.75.75 0 0 0 1.061-1.06l-1.59-1.591Z" />
+                </svg>
+              )}
             </button>
             <div className="relative">
-              <button
-                onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-300 dark:border-white/20 hover:border-blue-500 dark:hover:border-white/40 transition-colors"
-              >
-                {user?.profilePic ? (
-                  <img
-                    src={user.profilePic}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                    <IoPersonCircleOutline size={24} className="text-gray-500 dark:text-white" />
-                  </div>
-                )}
+              <button onClick={() => setIsProfileOpen(!isProfileOpen)} className="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-300 dark:border-white/20 hover:border-blue-500 dark:hover:border-white/40 transition-colors">
+                {user?.profilePic ? <img src={user.profilePic} alt="Profile" className="w-full h-full object-cover"/> : <div className="w-full h-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center"><IoPersonCircleOutline size={24} className="text-gray-500 dark:text-white" /></div>}
               </button>
-
               {isProfileOpen && (
                 <div className="absolute top-12 right-0 w-64 bg-white dark:bg-[#1e1e1e] rounded-xl shadow-lg border border-gray-200 dark:border-white/10 overflow-hidden z-30">
                   <div className="p-4 border-b border-gray-200 dark:border-white/10">
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {user?.name || 'User'}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                      {user?.email}
-                    </p>
+                    <p className="font-medium text-gray-900 dark:text-white">{user?.name || 'User'}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{user?.email}</p>
                   </div>
                   <div className="py-1">
-                    <button className="w-full px-4 py-2.5 text-left flex items-center space-x-3 hover:bg-gray-100 dark:hover:bg-white/5 text-gray-700 dark:text-gray-300">
-                      <IoPersonOutline size={18} />
-                      <span>Profile</span>
-                    </button>
-                    <button 
-                      className="w-full px-4 py-2.5 text-left flex items-center space-x-3 hover:bg-gray-100 dark:hover:bg-white/5 text-gray-700 dark:text-gray-300" 
-                      onClick={() => navigate('/user/setting')}
-                    >
-                      <IoSettingsOutline size={18} />
-                      <span>Settings</span>
-                    </button>
+                    <button className="w-full px-4 py-2.5 text-left flex items-center space-x-3 hover:bg-gray-100 dark:hover:bg-white/5 text-gray-700 dark:text-gray-300"><IoPersonOutline size={18} /><span>Profile</span></button>
+                    <button className="w-full px-4 py-2.5 text-left flex items-center space-x-3 hover:bg-gray-100 dark:hover:bg-white/5 text-gray-700 dark:text-gray-300" onClick={() => navigate('/user/setting')}><IoSettingsOutline size={18} /><span>Settings</span></button>
                   </div>
                 </div>
               )}
             </div>
           </div>
         </div>
-
         <div className="flex-1 overflow-y-auto p-4 flex flex-col bg-white dark:bg-black hide-scrollbar">
           <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col space-y-4 pb-4">
-            {messages.length === 0 && !streamingMessage ? (
+            {loading.history ? <div className="flex-1 flex flex-col items-center justify-center p-10"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div><span className="mt-4 text-sm">Loading...</span></div> : messages.length === 0 && !streamingMessage ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
-                {gptData ? (
-                  <>
+                {gptData ? (<>
                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mb-4 overflow-hidden">
-                      {gptData.imageUrl ? (
-                        <img src={gptData.imageUrl} alt={gptData.name} className="w-full h-full object-cover rounded-full" />
-                      ) : (
-                        <span className="text-2xl text-white">{gptData.name?.charAt(0) || '?'}</span>
-                      )}
+                      {gptData.imageUrl ? <img src={gptData.imageUrl} alt={gptData.name} className="w-full h-full object-cover rounded-full" /> : <span className="text-2xl text-white">{gptData.name?.charAt(0) || '?'}</span>}
                     </div>
                     <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">{gptData.name}</h2>
                     <p className="text-gray-500 dark:text-gray-400 max-w-md">{gptData.description}</p>
-                    
-                    {gptData.conversationStarter && (
-                      <div
-                        onClick={() => handleChatSubmit(gptData.conversationStarter || '')}
-                        className="mt-5 max-w-xs p-3 bg-gray-100 dark:bg-gray-800/70 border border-gray-300 dark:border-gray-700/70 rounded-lg text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-600/70 transition-colors"
-                      >
-                        <p className="text-gray-800 dark:text-white text-sm">
-                          {gptData.conversationStarter.length > 40
-                            ? gptData.conversationStarter.substring(0, 40) + '...'
-                            : gptData.conversationStarter
-                          }
-                        </p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
+                    {gptData.conversationStarter && (<div onClick={() => handleChatSubmit(gptData.conversationStarter || '')} className="mt-5 max-w-xs p-3 bg-gray-100 dark:bg-gray-800/70 border border-gray-300 dark:border-gray-700/70 rounded-lg text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-600/70 transition-colors"><p className="text-gray-800 dark:text-white text-sm">{gptData.conversationStarter.length > 40 ? gptData.conversationStarter.substring(0, 40) + '...' : gptData.conversationStarter}</p></div>)}
+                  </>) : (<>
                     <h1 className='text-2xl sm:text-3xl md:text-4xl font-bold mb-2 text-gray-900 dark:text-white'>Welcome to AI Assistant</h1>
                     <span className='text-base sm:text-lg md:text-xl font-medium text-gray-500 dark:text-gray-400 mb-8 block'>How can I assist you today?</span>
-                  </>
-                )}
+                  </>)}
               </div>
-            ) : (
-              <>
+            ) : (<>
                 {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`${message.role === 'user'
-                        ? 'bg-black/10 dark:bg-white/80 text-black font-[16px] dark:text-black rounded-br-none max-w-max '
-                        : 'assistant-message text-black font-[16px] dark:text-white rounded-bl-none w-full max-w-3xl'
-                      } rounded-2xl px-4 py-2`}
-                    >
-                      {message.role === 'user' ? (
-                        <>
+                  <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`${message.role === 'user' ? 'bg-black/10 dark:bg-white/80 text-black font-[16px] dark:text-black rounded-br-none max-w-max ' : 'assistant-message text-black font-[16px] dark:text-white rounded-bl-none w-full max-w-3xl'} rounded-2xl px-4 py-2`}>
+                      {message.role === 'user' ? (<>
                           <p className="whitespace-pre-wrap">{message.content}</p>
-                          
-                          {message.files && message.files.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {message.files.map((file: any, index: any) => (
-                                <div
-                                  key={`${file.name}-${index}`}
-                                  className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit"
-                                >
-                                  <div className="mr-1.5 text-gray-500 dark:text-gray-400">
-                                    {getFileIcon(file.name)}
-                                  </div>
-                                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">
-                                    {file.name}
-                                  </span>
-                                  {file.size && (
-                                    <div className="text-[10px] text-gray-500 ml-1 whitespace-nowrap">
-                                      {Math.round(file.size / 1024)} KB
-                                    </div>
-                                  )}
-                                  <a
-                                    href={file.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="ml-1 text-blue-500 hover:text-blue-600 text-xs"
-                                    title="Download file"
-                                  >
-                                    📎
-                                  </a>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="markdown-content">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              h1: ({ node, ...props }) => <h1 className="text-xl font-bold my-3" {...props} />,
-                              h2: ({ node, ...props }) => <h2 className="text-lg font-bold my-2" {...props} />,
-                              h3: ({ node, ...props }) => <h3 className="text-md font-bold my-2" {...props} />,
-                              h4: ({ node, ...props }) => <h4 className="font-bold my-2" {...props} />,
-                              p: ({ node, ...props }) => <p className="my-2" {...props} />,
-                              ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2" {...props} />,
-                              ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2" {...props} />,
-                              li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                              a: ({ node, ...props }) => <a className="text-blue-400 hover:underline" {...props} />,
-                              blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic" {...props} />,
-                              code: ({ node, children, ...props }) => {
-                                return true ? (
-                                  <code className="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm" {...props}>
-                                    {children}
-                                  </code>
-                                ) : (
-                                  <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-sm overflow-x-auto" {...props}>
-                                    {children}
-                                  </code>
-                                );
-                              },
-                              table: ({ node, ...props }) => (
-                                <div className="overflow-x-auto my-3">
-                                  <table className="min-w-full border border-gray-400 dark:border-gray-500" {...props} />
-                                </div>
-                              ),
-                              thead: ({ node, ...props }) => <thead className="bg-gray-300 dark:bg-gray-600" {...props} />,
-                              tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-400 dark:divide-gray-500" {...props} />,
-                              tr: ({ node, ...props }) => <tr className="hover:bg-gray-300 dark:hover:bg-gray-600" {...props} />,
-                              th: ({ node, ...props }) => <th className="px-4 py-2 text-left font-medium" {...props} />,
-                              td: ({ node, ...props }) => <td className="px-4 py-2" {...props} />,
-                            }}
-                          >
-                            {message.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                      <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>
-                        {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
+                          {message.files && message.files.length > 0 && (<div className="mt-2 flex flex-wrap gap-2">{message.files.map((file: any, index: any) => (<div key={`${file.name}-${index}`} className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit">
+                                  <div className="mr-1.5 text-gray-500 dark:text-gray-400">{getFileIcon(file.name)}</div>
+                                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">{file.name}</span>
+                                  {file.size && (<div className="text-[10px] text-gray-500 ml-1 whitespace-nowrap">{Math.round(file.size / 1024)} KB</div>)}
+                                  <a href={file.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-500 hover:text-blue-600 text-xs" title="Download file">📎</a>
+                                </div>))}</div>)}
+                        </>) : (<div className="markdown-content">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ h1: ({ node, ...props }) => <h1 className="text-xl font-bold my-3" {...props} />, h2: ({ node, ...props }) => <h2 className="text-lg font-bold my-2" {...props} />, h3: ({ node, ...props }) => <h3 className="text-md font-bold my-2" {...props} />, h4: ({ node, ...props }) => <h4 className="font-bold my-2" {...props} />, p: ({ node, ...props }) => <p className="my-2" {...props} />, ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2" {...props} />, ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2" {...props} />, li: ({ node, ...props }) => <li className="my-1" {...props} />, a: ({ node, ...props }) => <a className="text-blue-400 hover:underline" {...props} />, blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic" {...props} />, code: ({ node, children, ...props }) => { return true ? (<code className="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm" {...props}>{children}</code>) : (<code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-sm overflow-x-auto" {...props}>{children}</code>); }, table: ({ node, ...props }) => (<div className="overflow-x-auto my-3"><table className="min-w-full border border-gray-400 dark:border-gray-500" {...props} /></div>), thead: ({ node, ...props }) => <thead className="bg-gray-300 dark:bg-gray-600" {...props} />, tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-400 dark:divide-gray-500" {...props} />, tr: ({ node, ...props }) => <tr className="hover:bg-gray-300 dark:hover:bg-gray-600" {...props} />, th: ({ node, ...props }) => <th className="px-4 py-2 text-left font-medium" {...props} />, td: ({ node, ...props }) => <td className="px-4 py-2" {...props} />, }}>{message.content}</ReactMarkdown>
+                        </div>)}
+                      <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
-                  </div>
-                ))}
-
-                {streamingMessage && (
-                  <div className="flex justify-start">
-                    <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none`}>
-                      <div className="markdown-content">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {streamingMessage.content}
-                        </ReactMarkdown>
-
-                        {streamingMessage.isStreaming && (
-                          <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-xs mt-2 text-right text-gray-400/80">
-                        {streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {loading.message && !streamingMessage && (
-                  <div className="flex justify-start items-end space-x-2">
-                    <div className="w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none">
-                      <div className="typing-animation inline-flex items-center text-gray-400">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                  </div>))}
+                {streamingMessage && (<div className="flex justify-start"><div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none`}><div className="markdown-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingMessage.content}</ReactMarkdown>{streamingMessage.isStreaming && (<div className="typing-animation mt-2 inline-flex items-center text-gray-400"><span></span><span></span><span></span></div>)}</div><div className="text-xs mt-2 text-right text-gray-400/80">{streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div></div>)}
+                {loading.message && !streamingMessage && (<div className="flex justify-start items-end space-x-2"><div className="w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none"><div className="typing-animation inline-flex items-center text-gray-400"><span></span><span></span><span></span></div></div></div>)}
                 <div ref={messagesEndRef} />
-              </>
-            )}
+              </>)}
           </div>
         </div>
-
         <div className="flex-shrink-0 w-[95%] max-w-3xl mx-auto">
-          {isUploading && (
-            <div className="mb-2 px-2">
-              <div className="flex items-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                <div className="flex-shrink-0 mr-3">
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <svg className="animate-spin w-5 h-5 text-blue-500 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                    Uploading files...
-                  </div>
-                  <div className="mt-1 relative h-1.5 w-full bg-blue-100 dark:bg-blue-800/40 rounded-full overflow-hidden">
-                    <div
-                      className="absolute left-0 top-0 h-full bg-blue-500 dark:bg-blue-400 transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <UserMessageInput
-            onSubmit={handleChatSubmit}
-            onFileUpload={handleFileUpload as any}
-            isLoading={loading.message}
-            currentGptName={gptData?.name}
-            webSearchEnabled={webSearchEnabled}
-            setWebSearchEnabled={setWebSearchEnabled}
-            showWebSearchIcon={showWebSearchToggle}
-          />
+          {isUploading && (<div className="mb-2 px-2"><div className="flex items-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30"><div className="flex-shrink-0 mr-3"><div className="w-8 h-8 flex items-center justify-center"><svg className="animate-spin w-5 h-5 text-blue-500 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div></div><div className="flex-1 min-w-0"><div className="text-sm font-medium text-blue-700 dark:text-blue-300">{uploadedFiles.length === 1 ? `Uploading ${uploadedFiles[0]?.name}` : `Uploading ${uploadedFiles.length} files`}</div><div className="mt-1 relative h-1.5 w-full bg-blue-100 dark:bg-blue-800/40 rounded-full overflow-hidden"><div className="absolute left-0 top-0 h-full bg-blue-500 dark:bg-blue-400 transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div></div></div></div></div>)}
+          {uploadedFiles.length > 0 && !isUploading && (<div className="mb-2 flex flex-wrap gap-2">{uploadedFiles.map((file, index) => (<div key={`${file.name}-${index}`} className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit"><div className="mr-1.5 text-gray-500 dark:text-gray-400">{getFileIcon(file.name)}</div><span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">{file.name}</span><button onClick={() => handleRemoveUploadedFile(index)} className="ml-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-0.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors" aria-label="Remove file"><IoClose size={14} /></button></div>))}</div>)}
+          <UserMessageInput onSubmit={handleChatSubmit} onFileUpload={handleFileUpload} isLoading={loading.message} currentGptName={gptData?.name} webSearchEnabled={webSearchEnabled} setWebSearchEnabled={setWebSearchEnabled} showWebSearchIcon={showWebSearchToggle} />
         </div>
-
-        {isProfileOpen && (
-          <div
-            className="fixed inset-0 z-20"
-            onClick={() => setIsProfileOpen(false)}
-          />
-        )}
+        {isProfileOpen && (<div className="fixed inset-0 z-20" onClick={() => setIsProfileOpen(false)} />)}
       </div>
     </>
   );

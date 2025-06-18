@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { FiSave, FiUser, FiShield, FiDatabase, FiBell, FiGlobe, FiKey, FiMoon, FiSun } from 'react-icons/fi';
 import { useTheme } from '~/context/themeContext';
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card';
@@ -7,6 +7,7 @@ import { Input } from '~/components/ui/input';
 import { Label } from '~/components/ui/label';
 import { Switch } from '~/components/ui/switch';
 import { Separator } from '~/components/ui/separator';
+import { useFetcher, useLoaderData } from '@remix-run/react';
 
 interface SettingsFormData {
   // Profile Settings
@@ -17,9 +18,11 @@ interface SettingsFormData {
   twoFactorEnabled: boolean;
   passwordChangeRequired: boolean;
   
-  // API Settings
-  apiKey: string;
-  apiRateLimit: number;
+  // API Keys
+  openaiKey: string;
+  llamaKey: string;
+  geminiKey: string;
+  claudeKey: string;
   
   // Notification Settings
   emailNotifications: boolean;
@@ -31,20 +34,54 @@ interface SettingsFormData {
 }
 
 const AdminSettings: React.FC = () => {
+  const loaderData = useLoaderData<{
+    user: any;
+    profile?: {
+      full_name: string | null;
+      email: string;
+      api_keys: {
+        openai?: string;
+        llama?: string;
+        gemini?: string;
+        claude?: string;
+      } | null;
+    };
+  }>();
+  
   const { theme, setTheme } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
+  const fetcher = useFetcher();
+  
+  // Initialize settings with data from loader
   const [settings, setSettings] = useState<SettingsFormData>({
-    displayName: 'Admin User',
-    email: 'admin@mygpt.com',
+    displayName: loaderData?.profile?.full_name || 'Admin User',
+    email: loaderData?.profile?.email || loaderData?.user?.email || 'admin@mygpt.com',
     twoFactorEnabled: false,
     passwordChangeRequired: true,
-    apiKey: '••••••••••••••••••••••••••••••••',
-    apiRateLimit: 1000,
+    openaiKey: loaderData?.profile?.api_keys?.openai || '',
+    llamaKey: loaderData?.profile?.api_keys?.llama || '',
+    geminiKey: loaderData?.profile?.api_keys?.gemini || '',
+    claudeKey: loaderData?.profile?.api_keys?.claude || '',
     emailNotifications: true,
     pushNotifications: false,
     autoSave: true,
     debugMode: false,
   });
+
+  // Update settings when loader data changes
+  useEffect(() => {
+    if (loaderData?.profile) {
+      setSettings(prev => ({
+        ...prev,
+        displayName: loaderData.profile?.full_name || prev.displayName,
+        email: loaderData.profile?.email || prev.email,
+        openaiKey: loaderData.profile?.api_keys?.openai || prev.openaiKey,
+        llamaKey: loaderData.profile?.api_keys?.llama || prev.llamaKey,
+        geminiKey: loaderData.profile?.api_keys?.gemini || prev.geminiKey,
+        claudeKey: loaderData.profile?.api_keys?.claude || prev.claudeKey,
+      }));
+    }
+  }, [loaderData]);
 
   const toggleTheme = useCallback(() => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
@@ -59,21 +96,38 @@ const AdminSettings: React.FC = () => {
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log('Settings saved:', settings);
-      alert('Settings saved successfully!');
-    } catch (error) {
-      alert('Failed to save settings. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [settings]);
+    
+    // Save API keys to database
+    fetcher.submit(
+      {
+        intent: 'updateApiKeys',
+        openaiKey: settings.openaiKey,
+        llamaKey: settings.llamaKey,
+        geminiKey: settings.geminiKey,
+        claudeKey: settings.claudeKey,
+        displayName: settings.displayName
+      },
+      { method: 'post' }
+    );
+    
+    setIsSaving(false);
+  }, [settings, fetcher]);
 
-  const generateNewApiKey = useCallback(() => {
-    const newKey = 'ak_' + Math.random().toString(36).substring(2, 40);
-    handleInputChange('apiKey', newKey);
-  }, [handleInputChange]);
+  // Check for submission results
+  useEffect(() => {
+    if (fetcher.data && typeof fetcher.data === 'object' && 'success' in fetcher.data && fetcher.data.success) {  
+      alert('Settings saved successfully!');
+    } else if (fetcher.data && typeof fetcher.data === 'object' && 'error' in fetcher.data && fetcher.data.error) {
+      alert(`Error: ${fetcher.data.error}`);
+    }
+  }, [fetcher.data]);
+
+  // Helper function to mask API key for display
+  const maskApiKey = (key: string) => {
+    if (!key) return '';
+    if (key.length <= 8) return '••••••••';
+    return key.substring(0, 4) + '••••••••' + key.substring(key.length - 4);
+  };
 
   return (
     <div className={`flex flex-col h-full ${theme === 'dark' ? 'dark' : ''} bg-gray-50 dark:bg-neutral-900 text-black dark:text-white p-4 sm:p-6 overflow-hidden rounded-lg`}>
@@ -95,11 +149,11 @@ const AdminSettings: React.FC = () => {
           </Button>
           <Button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || fetcher.state === 'submitting'}
             className="flex items-center gap-2 bg-black text-white dark:bg-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200"
           >
             <FiSave size={16} />
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving || fetcher.state === 'submitting' ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </div>
@@ -133,160 +187,80 @@ const AdminSettings: React.FC = () => {
                   value={settings.email}
                   onChange={(e) => handleInputChange('email', e.target.value)}
                   placeholder="Enter your email"
+                  disabled // Email is managed by auth system
                 />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Security Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FiShield className="text-green-500" />
-              Security Settings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Two-Factor Authentication</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Add an extra layer of security to your account
-                </p>
-              </div>
-              <Switch
-                checked={settings.twoFactorEnabled}
-                onCheckedChange={(checked) => handleInputChange('twoFactorEnabled', checked)}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Require Password Change</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Force password change on next login
-                </p>
-              </div>
-              <Switch
-                checked={settings.passwordChangeRequired}
-                onCheckedChange={(checked) => handleInputChange('passwordChangeRequired', checked)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* API Settings */}
+        {/* API Keys */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FiKey className="text-purple-500" />
-              API Settings
+              API Keys
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="apiKey">API Key</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="apiKey"
-                  value={settings.apiKey}
-                  onChange={(e) => handleInputChange('apiKey', e.target.value)}
-                  placeholder="Your API key"
-                  className="font-mono"
-                />
-                <Button
-                  onClick={generateNewApiKey}
-                  variant="outline"
-                  className="whitespace-nowrap"
-                >
-                  Generate New
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="apiRateLimit">Rate Limit (requests/hour)</Label>
+              <Label htmlFor="openaiKey">OpenAI API Key</Label>
               <Input
-                id="apiRateLimit"
-                type="number"
-                value={settings.apiRateLimit}
-                onChange={(e) => handleInputChange('apiRateLimit', parseInt(e.target.value) || 0)}
-                placeholder="1000"
+                id="openaiKey"
+                value={settings.openaiKey}
+                onChange={(e) => handleInputChange('openaiKey', e.target.value)}
+                placeholder="sk-..."
+                className="font-mono"
+                type="password"
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Used for GPT-4o and other OpenAI models
+              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Notification Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FiBell className="text-orange-500" />
-              Notification Settings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Email Notifications</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Receive updates and alerts via email
-                </p>
-              </div>
-              <Switch
-                checked={settings.emailNotifications}
-                onCheckedChange={(checked) => handleInputChange('emailNotifications', checked)}
+            
+            <div className="space-y-2">
+              <Label htmlFor="claudeKey">Anthropic Claude API Key</Label>
+              <Input
+                id="claudeKey"
+                value={settings.claudeKey}
+                onChange={(e) => handleInputChange('claudeKey', e.target.value)}
+                placeholder="sk_ant-..."
+                className="font-mono"
+                type="password"
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Used for Claude 3 Opus, Sonnet and Haiku models
+              </p>
             </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Push Notifications</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Receive real-time notifications in browser
-                </p>
-              </div>
-              <Switch
-                checked={settings.pushNotifications}
-                onCheckedChange={(checked) => handleInputChange('pushNotifications', checked)}
+            
+            <div className="space-y-2">
+              <Label htmlFor="geminiKey">Google Gemini API Key</Label>
+              <Input
+                id="geminiKey"
+                value={settings.geminiKey}
+                onChange={(e) => handleInputChange('geminiKey', e.target.value)}
+                placeholder="AIza..."
+                className="font-mono"
+                type="password"
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Used for Gemini Pro and Flash models
+              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* System Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FiDatabase className="text-red-500" />
-              System Settings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Auto Save</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Automatically save changes as you work
-                </p>
-              </div>
-              <Switch
-                checked={settings.autoSave}
-                onCheckedChange={(checked) => handleInputChange('autoSave', checked)}
+            
+            <div className="space-y-2">
+              <Label htmlFor="llamaKey">Meta Llama API Key</Label>
+              <Input
+                id="llamaKey"
+                value={settings.llamaKey}
+                onChange={(e) => handleInputChange('llamaKey', e.target.value)}
+                placeholder="Enter Llama API key"
+                className="font-mono"
+                type="password"
               />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Debug Mode</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Enable detailed logging for troubleshooting
-                </p>
-              </div>
-              <Switch
-                checked={settings.debugMode}
-                onCheckedChange={(checked) => handleInputChange('debugMode', checked)}
-              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Used for Llama 3 and Llama 4 models
+              </p>
             </div>
           </CardContent>
         </Card>

@@ -153,19 +153,41 @@ export async function action({ request, context }: ActionFunctionArgs) {
     // Handle profile image upload
     if (profileImage instanceof File && profileImage.size > 0) {
       try {
-        console.log("Uploading profile image:", profileImage.name, profileImage.size);
-        imageUrl = await r2Uploader.uploadFile(profileImage, 'gpt-images');
-        console.log("Profile image uploaded successfully:", imageUrl);
-      } catch (uploadError) {
-        console.error("Error uploading profile image:", uploadError);
-        return json({
-          error: `Failed to upload profile image: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
-        }, { 
-          status: 500,
-          headers: response.headers
+        console.log("📷 CreateGPT: Uploading profile image:", {
+          name: profileImage.name,
+          size: profileImage.size,
+          type: profileImage.type
         });
+        
+        // r2Uploader.uploadFile now returns a string URL directly
+        imageUrl = await r2Uploader.uploadFile(profileImage, 'gpt-images');
+        
+        console.log("📷 CreateGPT: Image upload completed:", {
+          imageUrl,
+          urlType: typeof imageUrl,
+          urlLength: imageUrl?.length || 0
+        });
+        
+        // Additional validation to ensure we have a proper URL
+        if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) {
+          console.error("❌ CreateGPT: Invalid image URL received:", imageUrl);
+          imageUrl = null;
+        }
+        
+      } catch (uploadError) {
+        console.error("❌ CreateGPT: Error uploading profile image:", uploadError);
+        imageUrl = null;
       }
+    } else {
+      console.log("📷 CreateGPT: No profile image to upload or invalid file");
     }
+
+    // Add logging right before database operations
+    console.log("💾 CreateGPT: About to save to database with imageUrl:", {
+      imageUrl,
+      hasImageUrl: !!imageUrl,
+      imageUrlType: typeof imageUrl
+    });
 
     // Handle file uploads first
     const knowledgeFiles = formData.getAll('knowledgeFiles') as File[];
@@ -233,19 +255,19 @@ export async function action({ request, context }: ActionFunctionArgs) {
         const file = validKnowledgeFiles[i];
         try {
           console.log(`⬆️ CreateGPT: Uploading knowledge file ${i + 1}/${validKnowledgeFiles.length}:`, file.name);
+          
+          // r2Uploader.uploadFile now returns a string URL directly
           const fileUrl = await r2Uploader.uploadFile(file, 'knowledge-files');
-          console.log(`✅ CreateGPT: Knowledge file ${i + 1} uploaded:`, fileUrl);
           
           knowledgeBaseData.push({
             name: file.name,
-            url: fileUrl,
+            url: fileUrl, // String URL
             size: file.size,
             type: file.type,
             uploadedAt: new Date().toISOString()
           });
         } catch (error) {
           console.error(`❌ CreateGPT: Error uploading knowledge file ${file.name}:`, error);
-          throw error;
         }
       }
     }
@@ -274,8 +296,22 @@ export async function action({ request, context }: ActionFunctionArgs) {
       preview: knowledgeBaseString?.substring(0, 100)
     });
 
+    console.log("🔍 CreateGPT: Initial form data check:", {
+      intent,
+      gptId,
+      hasProfileImage: profileImage instanceof File && profileImage.size > 0,
+      profileImageSize: profileImage instanceof File ? profileImage.size : 'N/A',
+      profileImageName: profileImage instanceof File ? profileImage.name : 'N/A'
+    });
+
     if (intent === 'update' && gptId) {
       console.log("🔄 CreateGPT: Updating GPT with ID:", gptId);
+      console.log("🔄 CreateGPT: Update parameters:", {
+        name,
+        imageUrl,
+        hasImageUrl: !!imageUrl,
+        imageUrlType: typeof imageUrl
+      });
       
       // Ensure knowledge_base is properly stringified
       const knowledgeBaseString = knowledgeBaseData.length > 0 ? JSON.stringify(knowledgeBaseData) : null;
@@ -298,12 +334,22 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
       if (updateError) {
         console.error('❌ CreateGPT: Error updating GPT:', updateError);
+        console.error('❌ CreateGPT: Failed update parameters:', {
+          imageUrl,
+          imageUrlType: typeof imageUrl
+        });
         throw updateError;
       } else {
-        console.log('✅ CreateGPT: GPT updated successfully');
+        console.log('✅ CreateGPT: GPT updated successfully with image URL:', imageUrl);
       }
     } else if (intent === 'create') {
       console.log("➕ CreateGPT: Creating new GPT");
+      console.log("➕ CreateGPT: Create parameters:", {
+        name,
+        imageUrl,
+        hasImageUrl: !!imageUrl,
+        imageUrlType: typeof imageUrl
+      });
       
       // Ensure knowledge_base is properly stringified
       const knowledgeBaseString = knowledgeBaseData.length > 0 ? JSON.stringify(knowledgeBaseData) : null;
@@ -322,7 +368,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
           web_browsing: webBrowsing,
           folder,
           image_url: imageUrl,
-          knowledge_base: knowledgeBaseString, // Use the properly stringified version
+          knowledge_base: knowledgeBaseString,
           is_public: false,
           is_featured: false,
           view_count: 0,
@@ -331,9 +377,13 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
       if (insertError) {
         console.error('❌ CreateGPT: Error creating GPT:', insertError);
+        console.error('❌ CreateGPT: Failed create parameters:', {
+          imageUrl,
+          imageUrlType: typeof imageUrl
+        });
         throw insertError;
       } else {
-        console.log('✅ CreateGPT: GPT created successfully');
+        console.log('✅ CreateGPT: GPT created successfully with image URL:', imageUrl);
       }
     }
 
@@ -369,7 +419,7 @@ export default function CreateGptPage() {
       onGptCreated={() => navigate('/admin')}
       actionData={actionData}
       isSubmitting={isSubmitting}
-      initialData={initialData}
+      initialData={initialData || undefined}
     />
   );
 }

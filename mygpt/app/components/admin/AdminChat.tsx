@@ -172,7 +172,7 @@ const MarkdownStyles = () => (
 
 const modelIcons: { [key: string]: JSX.Element } = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
-  'GPT-4o': <RiOpenaiFill className="text-green-500" size={18} />,
+  'GPT-4o': <TbRouter className="text-green-500" size={18} />,
   'GPT-4o-mini': <SiOpenai className="text-green-400" size={16} />,
   'Gemini-flash-2.5': <SiGooglegemini className="text-blue-400" size={16} />,
   'Gemini-pro-2.5': <SiGooglegemini className="text-blue-600" size={16} />,
@@ -237,7 +237,6 @@ const AdminChat: React.FC = () => {
       try {
         setLoading(prev => ({ ...prev, history: true }));
         
-        console.log("📜 AdminChat: Loading conversation history for:", conversationId);
         
         // Use browser fetch instead of getSupabaseClient since we're in a component
         const response = await fetch(`/api/chat-history?sessionId=${conversationId}`);
@@ -248,7 +247,6 @@ const AdminChat: React.FC = () => {
         
         const data = await response.json() as { messages: any[] };
         if (data.messages && data.messages.length > 0) {
-          console.log("📜 AdminChat: Loaded messages:", data.messages.length);
           
           // Format messages for display
           const formattedMessages: Message[] = data.messages.map((msg: any) => {
@@ -258,7 +256,6 @@ const AdminChat: React.FC = () => {
             if (msg.user_docs) {
               try {
                 files = JSON.parse(msg.user_docs);
-                console.log(`📎 AdminChat: Message ${msg.id} has ${files.length} files`);
               } catch (parseError) {
                 console.error('❌ AdminChat: Error parsing user_docs:', parseError);
               }
@@ -276,7 +273,6 @@ const AdminChat: React.FC = () => {
           
           setMessages(formattedMessages);
           conversationLoaded.current = true;
-          console.log("✅ AdminChat: Conversation history loaded successfully");
         }
       } catch (error) {
         console.error('❌ AdminChat: Error loading conversation history:', error);
@@ -297,14 +293,9 @@ const AdminChat: React.FC = () => {
   }, [messages, streamingMessage]);
 
   const handleChatSubmit = async (message: string, files?: FileObject[]) => {
-    console.log("🚀 AdminChat: handleChatSubmit called", { 
-      messageLength: message.length, 
-      filesCount: files?.length || 0, 
-      uploadedFilesCount: uploadedFiles.length 
-    });
+   
 
     if (!message.trim() && (!files || files.length === 0)) {
-      console.log("❌ AdminChat: No message or files provided");
       return;
     }
 
@@ -312,27 +303,18 @@ const AdminChat: React.FC = () => {
     let uploadedFileUrls: FileAttachment[] = [];
     const allFiles = [...(files || []), ...uploadedFiles];
     
-    console.log("📁 AdminChat: Total files to process:", allFiles.length);
     
     if (allFiles.length > 0) {
       setLoading(prev => ({ ...prev, message: true }));
       setIsUploading(true);
       
       try {
-        console.log("⬆️ AdminChat: Starting file upload to Python backend...");
         const formData = new FormData();
         
         // Add files to FormData
         for (let i = 0; i < allFiles.length; i++) {
           const fileObj = allFiles[i];
           const actualFile = (fileObj as any)._fileRef || fileObj;
-          
-          console.log(`📄 AdminChat: Adding file ${i+1}/${allFiles.length}:`, {
-            name: actualFile.name,
-            type: actualFile.type,
-            size: actualFile.size,
-            isFileInstance: actualFile instanceof File
-          });
           
           formData.append('files', actualFile);
         }
@@ -356,7 +338,7 @@ const AdminChat: React.FC = () => {
         const stopProgress = simulateProgress();
         
         // Upload files via Remix API route (which forwards to Python backend)
-        console.log("🌐 AdminChat: Making upload request to Remix API");
+        
         const uploadResponse = await fetch('/api/upload-documents', {
           method: 'POST',
           body: formData,
@@ -365,7 +347,7 @@ const AdminChat: React.FC = () => {
         stopProgress();
         setUploadProgress(100);
         
-        console.log("📥 AdminChat: Upload response status:", uploadResponse.status);
+        
         
         if (uploadResponse.ok) {
           const uploadResult = await uploadResponse.json() as { upload_results?: { filename: string; stored_url_or_key: string; status: string }[] };
@@ -380,7 +362,7 @@ const AdminChat: React.FC = () => {
                 type: 'application/octet-stream'
               }));
           }
-          console.log("✅ AdminChat: Files uploaded successfully:", uploadedFileUrls);
+          
         } else {
           const errorData = await uploadResponse.json();
           console.error("❌ AdminChat: Upload failed:", errorData);
@@ -404,10 +386,6 @@ const AdminChat: React.FC = () => {
       files: uploadedFileUrls
     };
 
-    console.log("💬 AdminChat: Adding user message:", { 
-      id: newUserMessage.id, 
-      filesCount: uploadedFileUrls.length 
-    });
 
     setMessages(prev => [...prev, newUserMessage]);
     setUploadedFiles([]);
@@ -422,8 +400,7 @@ const AdminChat: React.FC = () => {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    try {
-      console.log("🚀 AdminChat: Preparing chat API request");
+      try {
       const chatFormData = new FormData();
       chatFormData.append('intent', 'chat');
       chatFormData.append('message', message);
@@ -433,30 +410,20 @@ const AdminChat: React.FC = () => {
       chatFormData.append('webSearch', webSearchEnabled.toString());
       
       const filesJsonString = JSON.stringify(uploadedFileUrls);
-      console.log(`📎 AdminChat: Sending ${uploadedFileUrls.length} files in request`);
+      
       chatFormData.append('files', filesJsonString);
       
       // Add conversation ID if we're continuing an existing conversation
       if (conversationId) {
         chatFormData.append('conversationId', conversationId);
-        console.log("🔗 AdminChat: Using existing conversation ID:", conversationId);
+        
       }
-
-      // Log all form data
-      console.log("📋 AdminChat: Chat API FormData contents:");
-      for (const [key, value] of chatFormData.entries()) {
-        console.log(`  ${key}:`, typeof value === 'string' ? value.substring(0, 100) + (value.length > 100 ? '...' : '') : value);
-      }
-
-      // Make the request to our Remix API route
-      console.log("🌐 AdminChat: Making chat API request to /admin/chat-api");
       const response = await fetch('/admin/chat-api', {
         method: 'POST',
         body: chatFormData,
         signal: abortController.signal
       });
 
-      console.log("📥 AdminChat: Chat API response status:", response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -494,7 +461,6 @@ const AdminChat: React.FC = () => {
       setStreamingMessage(currentStreamingMessage);
       setLoading(prev => ({ ...prev, message: false }));
 
-      console.log("📡 AdminChat: Starting to process streaming response");
 
       // Process the stream
       try {
@@ -502,7 +468,7 @@ const AdminChat: React.FC = () => {
           const { done, value } = await reader.read();
           
           if (done) {
-            console.log("📡 AdminChat: Stream ended");
+             
             if (buffer) {
               processChunk(buffer);
             }
@@ -527,7 +493,7 @@ const AdminChat: React.FC = () => {
 
       // Finalize the message if needed
       if (currentStreamingMessage.content && currentStreamingMessage.isStreaming) {
-        console.log("✅ AdminChat: Finalizing streaming message");
+       
         currentStreamingMessage.isStreaming = false;
         setStreamingMessage(null);
         setMessages(prev => [...prev, currentStreamingMessage]);
@@ -557,7 +523,7 @@ const AdminChat: React.FC = () => {
             };
             setStreamingMessage({ ...currentStreamingMessage });
           } else if (data.type === 'end' || data.type === 'done') {
-            console.log("✅ AdminChat: Stream completed");
+           
             currentStreamingMessage = {
               ...currentStreamingMessage,
               isStreaming: false
@@ -572,7 +538,6 @@ const AdminChat: React.FC = () => {
 
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('ℹ️ AdminChat: Chat request was aborted');
         return;
       }
 
@@ -593,15 +558,6 @@ const AdminChat: React.FC = () => {
   };
 
   const handleFileUpload = (files: FileObject[]) => {
-    console.log("📁 AdminChat: handleFileUpload called with files:", files.length);
-    files.forEach((file, index) => {
-      console.log(`📄 AdminChat: Received file ${index + 1}:`, {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        hasFileRef: !!(file as any)._fileRef
-      });
-    });
     
     setUploadedFiles(prev => [...prev, ...files]);
   };

@@ -28,7 +28,7 @@ export class R2Uploader {
     });
   }
 
-  async uploadFile(file: any, folder: string = ''): Promise<any> {
+  async uploadFile(file: any, folder: string = ''): Promise<string> {
     try {
       // Debug info
       console.log("R2Uploader: uploadFile called with:", {
@@ -42,12 +42,11 @@ export class R2Uploader {
       // Fix for missing filename
       const safeFilename = file?.name || `file-${Date.now()}`;
       
-      // Generate filename regardless of file object structure
+      // Generate filename
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(2, 15);
       let fileExtension = "bin";
       
-      // Safely extract extension if possible
       if (safeFilename && safeFilename.includes('.')) {
         const parts = safeFilename.split('.');
         fileExtension = parts[parts.length - 1];
@@ -56,15 +55,13 @@ export class R2Uploader {
       const fileName = `${folder ? folder + '/' : ''}${timestamp}-${randomId}.${fileExtension}`;
       console.log("R2Uploader: Generated filename:", fileName);
 
-      // Get file content safely
+      // Get file content
       let fileContent: any;
       if (file instanceof Blob || file instanceof File) {
         fileContent = new Uint8Array(await file.arrayBuffer());
       } else if (typeof file === 'string') {
-        // Handle string input (like base64)
         fileContent = file;
       } else {
-        // Fallback to empty file
         fileContent = new Uint8Array(0);
       }
 
@@ -78,24 +75,11 @@ export class R2Uploader {
 
       await this.s3Client.send(command);
 
-      // Return file info object
-      return {
-        name: safeFilename,
-        url: `${this.publicDomain}/${fileName}`,
-        size: file?.size || 0,
-        type: file?.type || 'application/octet-stream'
-      };
+      // IMPORTANT: Return just the URL string
+      return `${this.publicDomain}/${fileName}`;
     } catch (error) {
       console.error('R2Uploader error:', error);
-      console.error('File object:', file);
-      
-      // Return dummy object for debug testing
-      return {
-        name: file?.name || `file-${Date.now()}`,
-        url: `https://example.com/dummy-${Date.now()}.txt`,
-        size: file?.size || 0,
-        type: file?.type || 'application/octet-stream'
-      };
+      throw error;
     }
   }
 

@@ -3,6 +3,7 @@
 interface Env {
   SUPABASE_URL: string;
   SUPABASE_API_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
   VITE_APP_URL: string;
   PYTHON_BACKEND_URL: string;
   NODE_ENV: string;
@@ -12,6 +13,5 @@ interface Env {
   R2_BUCKET_NAME: string;
   FILES_BUCKET?: string;
   R2_PUBLIC_DOMAIN: string;
-  BREVO_API_KEY?: string;
   R2_BUCKET: R2Bucket;
 }

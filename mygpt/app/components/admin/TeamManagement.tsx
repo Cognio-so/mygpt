@@ -66,6 +66,8 @@ interface GPT {
   id: string;
   name: string;
   model: string;
+  image_url?: string;
+  description?: string;
 }
 
 const getRoleIcon = (role: string) => {
@@ -346,16 +348,27 @@ const TeamMemberCard = React.memo(({
 });
 
 const TeamManagement: React.FC = () => {
-  const { teamMembers, availableGpts, currentUser } = useLoaderData<{
+  const loaderData = useLoaderData<{
     teamMembers: TeamMember[];
     availableGpts: GPT[];
-    currentUser: { id: string; email: string; name: string };
+    currentUser: { id: string; email: string; name: string; avatar?: string; role?: string };
+    team: { name: string; description: string };
+    error?: string;
   }>();
+  
+  // Destructure with fallbacks
+  const {
+    teamMembers = [],
+    availableGpts = [],
+    currentUser,
+    team,
+    error
+  } = loaderData || {};
   
   const fetcher = useFetcher();
   const { theme, setTheme } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'editor' | 'viewer'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('all');
   
   // Dialog states
@@ -381,6 +394,41 @@ const TeamManagement: React.FC = () => {
     permissions: TeamMember['permissions'];
   } | null>(null);
 
+  // Add new state for GPT assignment
+  const [selectedGptIds, setSelectedGptIds] = useState<string[]>([]);
+
+  // Enhanced debugging
+  useEffect(() => {
+    console.log('🔍 TeamManagement mounted with data:', {
+      hasLoaderData: !!loaderData,
+      teamMembersArray: teamMembers,
+      teamMembersCount: teamMembers?.length || 0,
+      teamMembersType: typeof teamMembers,
+      isArray: Array.isArray(teamMembers),
+      availableGptsCount: availableGpts?.length || 0,
+      currentUser: currentUser,
+      team: team,
+      error: error
+    });
+
+    // Log each team member
+    if (teamMembers && teamMembers.length > 0) {
+      console.log('👥 Team members details:');
+      teamMembers.forEach((member, index) => {
+        console.log(`  ${index + 1}. ${member.name} (${member.email}) - ${member.role}`);
+      });
+    } else {
+      console.log('❌ No team members found or teamMembers is not an array');
+    }
+  }, [loaderData, teamMembers, availableGpts, currentUser, team, error]);
+
+  // Show error if exists
+  useEffect(() => {
+    if (error) {
+      console.error('❌ Loader error:', error);
+    }
+  }, [error]);
+
   const toggleTheme = useCallback(() => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
   }, [theme, setTheme]);
@@ -394,6 +442,18 @@ const TeamManagement: React.FC = () => {
   }, []);
 
   const filteredMembers = useMemo(() => {
+    console.log('🔍 Filtering members. Input:', {
+      teamMembersLength: teamMembers?.length || 0,
+      searchTerm,
+      roleFilter,
+      statusFilter
+    });
+
+    if (!teamMembers || !Array.isArray(teamMembers) || teamMembers.length === 0) {
+      console.log('❌ No team members to filter');
+      return [];
+    }
+
     let filtered = teamMembers;
 
     if (searchTerm) {
@@ -411,6 +471,12 @@ const TeamManagement: React.FC = () => {
       filtered = filtered.filter(member => member.status === statusFilter);
     }
 
+    console.log('✅ Filtered members result:', {
+      originalCount: teamMembers.length,
+      filteredCount: filtered.length,
+      filtered: filtered.map(m => ({ name: m.name, email: m.email, role: m.role }))
+    });
+
     return filtered;
   }, [teamMembers, searchTerm, roleFilter, statusFilter]);
 
@@ -419,6 +485,8 @@ const TeamManagement: React.FC = () => {
       alert('Please fill in all required fields');
       return;
     }
+
+    console.log('🚀 Submitting invitation:', inviteForm);
 
     fetcher.submit(
       {
@@ -429,9 +497,6 @@ const TeamManagement: React.FC = () => {
       },
       { method: 'post' }
     );
-
-    setIsInviteDialogOpen(false);
-    setInviteForm({ email: '', name: '', role: 'user', message: '' });
   }, [inviteForm, fetcher]);
 
   const handleUpdateRole = useCallback((member: TeamMember, newRole: 'admin' | 'user') => {
@@ -441,6 +506,7 @@ const TeamManagement: React.FC = () => {
     }
 
     if (window.confirm(`Change ${member.name}'s role to ${newRole}?`)) {
+      console.log('🔄 Updating role:', member.user_id, 'to:', newRole);
       fetcher.submit(
         { 
           intent: 'updateRole',
@@ -458,7 +524,8 @@ const TeamManagement: React.FC = () => {
       return;
     }
 
-    if (window.confirm(`Are you sure you want to remove ${member.name}?`)) {
+    if (window.confirm(`Are you sure you want to remove ${member.name}? This action cannot be undone.`)) {
+      console.log('🗑️ Removing member:', member.user_id);
       fetcher.submit(
         { 
           intent: 'removeUser',
@@ -476,7 +543,7 @@ const TeamManagement: React.FC = () => {
     }
 
     // In a real implementation, you'd send this to an email service
-    console.log('Sending email to:', selectedMember.email, emailForm);
+    console.log('📧 Sending email to:', selectedMember.email, emailForm);
     alert(`Email would be sent to ${selectedMember.name}!`);
     
     setIsSendEmailOpen(false);
@@ -495,10 +562,11 @@ const TeamManagement: React.FC = () => {
   const handleSavePermissions = useCallback(() => {
     if (!selectedMember || !permissionsForm) return;
 
+    console.log('💾 Saving permissions for:', selectedMember.user_id);
     fetcher.submit(
       {
         intent: 'updatePermissions',
-        memberId: selectedMember.user_id,
+        userId: selectedMember.user_id,
         role: permissionsForm.role,
         permissions: JSON.stringify(permissionsForm.permissions)
       },
@@ -511,7 +579,33 @@ const TeamManagement: React.FC = () => {
 
   const handleAssignGpt = useCallback((member: TeamMember) => {
     setSelectedMember(member);
+    setSelectedGptIds(member.assignedGpts || []);
     setIsAssignGptOpen(true);
+  }, []);
+
+  const handleSaveGptAssignments = useCallback(() => {
+    if (!selectedMember) return;
+
+    console.log('💾 Saving GPT assignments for:', selectedMember.user_id);
+    fetcher.submit(
+      {
+        intent: 'assignGpts',
+        userId: selectedMember.user_id,
+        gptIds: JSON.stringify(selectedGptIds)
+      },
+      { method: 'post' }
+    );
+
+    setIsAssignGptOpen(false);
+    setSelectedGptIds([]);
+  }, [selectedMember, selectedGptIds, fetcher]);
+
+  const handleGptToggle = useCallback((gptId: string) => {
+    setSelectedGptIds(prev => 
+      prev.includes(gptId) 
+        ? prev.filter(id => id !== gptId)
+        : [...prev, gptId]
+    );
   }, []);
 
   const handleSendEmailDialog = useCallback((member: TeamMember) => {
@@ -526,17 +620,39 @@ const TeamManagement: React.FC = () => {
   return (
     <div className={`flex flex-col h-full ${theme === 'dark' ? 'dark' : ''} bg-gray-50 dark:bg-neutral-900 text-black dark:text-white overflow-hidden rounded-lg`}>
       <div className="p-4 sm:p-6 flex-shrink-0">
-        <TeamHeader 
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onOpenInviteDialog={() => setIsInviteDialogOpen(true)}
-        />
+        <div className="mb-4 md:mb-6 flex-shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-center sm:text-left">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{team?.name || 'Team Management'}</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {team?.description || 'Manage team members, roles, and permissions'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 self-center sm:self-auto mt-3 sm:mt-0">
+            <Button
+              onClick={toggleTheme}
+              variant="outline"
+              size="icon"
+              className="rounded-full"
+              title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {theme === 'dark' ? <FiSun size={20} /> : <FiMoon size={20} />}
+            </Button>
+            
+            <Button 
+              onClick={() => setIsInviteDialogOpen(true)}
+              className="flex items-center gap-2 bg-black text-white dark:bg-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200"
+            >
+              <FiUserPlus size={16} />
+              Invite Member
+            </Button>
+          </div>
+        </div>
 
         <TeamFilters
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
           roleFilter={roleFilter}
-          onRoleFilterChange={(value) => setRoleFilter(value as 'admin' | 'editor' | 'viewer' | 'all')}
+          onRoleFilterChange={(value) => setRoleFilter(value as 'admin' | 'user' | 'all')}
           statusFilter={statusFilter}
           onStatusFilterChange={(value) => setStatusFilter(value as 'active' | 'pending' | 'inactive' | 'all')}
         />
@@ -545,29 +661,63 @@ const TeamManagement: React.FC = () => {
       {/* Team Members Grid */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6">
         <ClientOnly fallback={<LoadingSkeleton />}>
-          {filteredMembers.length === 0 ? (
+          {error ? (
+            <div className="flex flex-col items-center justify-center h-64 text-red-500 dark:text-red-400">
+              <h3 className="text-lg font-medium mb-2">Error Loading Team Data</h3>
+              <p className="text-sm text-center">{error}</p>
+              <Button 
+                onClick={() => window.location.reload()}
+                className="mt-4"
+                variant="outline"
+              >
+                Retry
+              </Button>
+            </div>
+          ) : filteredMembers.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-gray-500 dark:text-gray-400">
               <FiUsers size={48} className="mb-4" />
-              <h3 className="text-lg font-medium mb-2">No team members found</h3>
+              <h3 className="text-lg font-medium mb-2">
+                {teamMembers && teamMembers.length === 0 
+                  ? 'No team members yet' 
+                  : 'No team members found'
+                }
+              </h3>
               <p className="text-sm text-center">
-                {searchTerm ? 'Try adjusting your search terms or filters' : 'Invite your first team member to get started'}
+                {searchTerm || roleFilter !== 'all' || statusFilter !== 'all'
+                  ? 'Try adjusting your search terms or filters' 
+                  : 'Invite your first team member to get started'
+                }
               </p>
+              {teamMembers && teamMembers.length === 0 && (
+                <Button 
+                  onClick={() => setIsInviteDialogOpen(true)}
+                  className="mt-4 bg-black text-white dark:bg-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200"
+                >
+                  <FiUserPlus size={16} className="mr-2" />
+                  Invite First Member
+                </Button>
+              )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
-              {filteredMembers.map((member) => (
-                <TeamMemberCard
-                  key={member.user_id}
-                  member={member}
-                  availableGpts={availableGpts}
-                  formatDate={formatDate}
-                  onEditPermissions={handleEditPermissions}
-                  onSendEmail={handleSendEmailDialog}
-                  onAssignGpt={handleAssignGpt}
-                  onRemoveMember={handleRemoveMember}
-                />
-              ))}
-            </div>
+            <>
+              <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+                Showing {filteredMembers.length} of {teamMembers.length} team member{teamMembers.length !== 1 ? 's' : ''}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+                {filteredMembers.map((member) => (
+                  <TeamMemberCard
+                    key={member.user_id}
+                    member={member}
+                    availableGpts={availableGpts}
+                    formatDate={formatDate}
+                    onEditPermissions={handleEditPermissions}
+                    onSendEmail={handleSendEmailDialog}
+                    onAssignGpt={handleAssignGpt}
+                    onRemoveMember={handleRemoveMember}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </ClientOnly>
       </div>
@@ -642,7 +792,7 @@ const TeamManagement: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Permissions Dialog */}
+      {/* Updated Edit Permissions Dialog */}
       <Dialog open={isEditPermissionsOpen} onOpenChange={setIsEditPermissionsOpen}>
         <DialogContent>
           <DialogHeader>
@@ -655,46 +805,26 @@ const TeamManagement: React.FC = () => {
             <div className="space-y-2">
               <Label>Role</Label>
               <select
-                value={permissionsForm?.role || 'viewer'}
+                value={permissionsForm?.role || 'user'}
                 onChange={(e) => setPermissionsForm(prev => prev ? {
                   ...prev,
                   role: e.target.value as TeamMember['role']
                 } : null)}
                 className="w-full px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300"
               >
-                <option value="viewer">Viewer</option>
-                <option value="editor">Editor</option>
+                <option value="user">User</option>
                 <option value="admin">Admin</option>
               </select>
-            </div>
-            <div className="space-y-3">
-              <Label>Permissions</Label>
-              {permissionsForm && Object.entries(permissionsForm.permissions).map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <Label className="text-sm">
-                    {key.replace('can', '').replace(/([A-Z])/g, ' $1').trim()}
-                  </Label>
-                  <input
-                    type="checkbox"
-                    checked={value}
-                    onChange={(e) => setPermissionsForm(prev => prev ? {
-                      ...prev,
-                      permissions: {
-                        ...prev.permissions,
-                        [key]: e.target.checked
-                      }
-                    } : null)}
-                    className="rounded border-gray-300"
-                  />
-                </div>
-              ))}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditPermissionsOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSavePermissions} disabled={fetcher.state === 'submitting'}>
+            <Button 
+              onClick={handleSavePermissions} 
+              disabled={fetcher.state === 'submitting'}
+            >
               {fetcher.state === 'submitting' ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
@@ -742,8 +872,9 @@ const TeamManagement: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Updated Assign GPT Dialog */}
       <Dialog open={isAssignGptOpen} onOpenChange={setIsAssignGptOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Assign GPTs to {selectedMember?.name}</DialogTitle>
             <DialogDescription>
@@ -760,17 +891,26 @@ const TeamManagement: React.FC = () => {
             ) : (
               availableGpts.map((gpt) => (
                 <div key={gpt.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <div className="font-medium">{gpt.name}</div>
-                    <div className="text-sm text-gray-500">{gpt.model}</div>
+                  <div className="flex items-center gap-3">
+                    {gpt.image_url && (
+                      <img 
+                        src={gpt.image_url} 
+                        alt={gpt.name}
+                        className="w-8 h-8 rounded object-cover"
+                      />
+                    )}
+                    <div>
+                      <div className="font-medium">{gpt.name}</div>
+                      <div className="text-sm text-gray-500">{gpt.model}</div>
+                      {gpt.description && (
+                        <div className="text-xs text-gray-400 line-clamp-1">{gpt.description}</div>
+                      )}
+                    </div>
                   </div>
                   <input
                     type="checkbox"
-                    checked={selectedMember?.assignedGpts.includes(gpt.id) || false}
-                    onChange={(e) => {
-                      // Handle GPT assignment logic here
-                      console.log('Toggle GPT assignment:', gpt.id, e.target.checked);
-                    }}
+                    checked={selectedGptIds.includes(gpt.id)}
+                    onChange={() => handleGptToggle(gpt.id)}
                     className="rounded border-gray-300"
                   />
                 </div>
@@ -781,8 +921,11 @@ const TeamManagement: React.FC = () => {
             <Button variant="outline" onClick={() => setIsAssignGptOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => setIsAssignGptOpen(false)}>
-              Update Assignments
+            <Button 
+              onClick={handleSaveGptAssignments}
+              disabled={fetcher.state === 'submitting'}
+            >
+              {fetcher.state === 'submitting' ? 'Updating...' : 'Update Assignments'}
             </Button>
           </DialogFooter>
         </DialogContent>

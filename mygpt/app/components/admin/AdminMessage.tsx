@@ -83,7 +83,6 @@ const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
     e.preventDefault();
     if (isLoading || (!inputMessage.trim() && selectedFiles.length === 0)) return;
     
-    console.log("📝 AdminMessage: Submitting with files:", selectedFiles);
     onSubmit(inputMessage, selectedFiles);
     setInputMessage('');
     setSelectedFiles([]);
@@ -105,24 +104,16 @@ const AdminMessageInput: React.FC<AdminMessageInputProps> = ({
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
     
-    console.log("AdminMessage: Files selected:", fileList.length);
     
     const fileArray: Array<any> = [];
     
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
-      console.log("AdminMessage: File details:", {
-        name: file.name,
-        size: file.size,
-        type: file.type
-      });
-      
       // Store the actual File object directly
       fileArray.push(file);
     }
     
     if (onFileUpload) {
-      console.log("AdminMessage: Calling onFileUpload with files:", fileArray.length);
       onFileUpload(fileArray);
     }
     

@@ -21,12 +21,20 @@ SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 VITE_APP_URL = "https://mygpt.asset-7a1.workers.dev"
 PYTHON_BACKEND_URL = "https://customgpt-python.onrender.com"
 NODE_ENV = "production"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2c3pidG14Z2drdXR0Ymt2Z3NvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTg4NjcwOSwiZXhwIjoyMDY1NDYyNzA5fQ.VnKsjqSYYxgZqc-mTktvW8UqmUKBjYu618sjhBfNomE"
 
 [env.development.vars]
 NODE_ENV = "development"
 VITE_APP_URL = "http://localhost:5173"
 PYTHON_BACKEND_URL = "http://localhost:8000"
 
+[env.production.vars]
+NODE_ENV = "production"
+VITE_APP_URL = "https://mygpt.asset-7a1.workers.dev"
+PYTHON_BACKEND_URL = "https://customgpt-python.onrender.com"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2c3pidG14Z2drdXR0Ymt2Z3NvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTg4NjcwOSwiZXhwIjoyMDY1NDYyNzA5fQ.VnKsjqSYYxgZqc-mTktvW8UqmUKBjYu618sjhBfNomE"
+
 [[r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "ai-agents"
+

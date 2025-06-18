@@ -16,6 +16,14 @@ export interface Database {
           full_name: string | null
           avatar_url: string | null
           role: 'admin' | 'user'
+          assigned_gpts: string[] | null
+          permissions: Json | null
+          api_keys: {
+            openai?: string;
+            llama?: string;
+            gemini?: string;
+            claude?: string;
+          } | null
           created_at: string
           updated_at: string
         }
@@ -25,6 +33,14 @@ export interface Database {
           full_name?: string | null
           avatar_url?: string | null
           role?: 'admin' | 'user'
+          assigned_gpts?: string[] | null
+          permissions?: Json | null
+          api_keys?: {
+            openai?: string;
+            llama?: string;
+            gemini?: string;
+            claude?: string;
+          } | null
           created_at?: string
           updated_at?: string
         }
@@ -34,6 +50,14 @@ export interface Database {
           full_name?: string | null
           avatar_url?: string | null
           role?: 'admin' | 'user'
+          assigned_gpts?: string[] | null
+          permissions?: Json | null
+          api_keys?: {
+            openai?: string;
+            llama?: string;
+            gemini?: string;
+            claude?: string;
+          } | null
           created_at?: string
           updated_at?: string
         }
@@ -545,4 +569,25 @@ export interface FileAttachment {
   size: number;
   type: string;
   uploadedAt?: string;
+}
+
+// Helper types for team management
+export interface UserPermissions {
+  canCreateGpt: boolean;
+  canEditGpt: boolean;
+  canDeleteGpt: boolean;
+  canInviteUsers: boolean;
+  canManageTeam: boolean;
+}
+
+export interface TeamMemberProfile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: 'admin' | 'user';
+  assigned_gpts: string[] | null;
+  permissions: UserPermissions | null;
+  created_at: string;
+  updated_at: string;
 }

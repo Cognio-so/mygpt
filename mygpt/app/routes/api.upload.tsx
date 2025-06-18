@@ -36,9 +36,19 @@ export async function action({ request, context }: ActionFunctionArgs) {
     for (const file of files) {
       console.log("API Upload: Processing file:", file);
       try {
-        const result = await r2Uploader.uploadFile(file, user.id);
-        uploadedFiles.push(result);
-        console.log("API Upload: File processed successfully:", result);
+        // uploadFile now returns a string URL
+        const fileUrl = await r2Uploader.uploadFile(file, user.id);
+        
+        // Create a structured response object with the URL string
+        const fileData = {
+          name: file.name,
+          url: fileUrl, // Plain string URL
+          size: file.size,
+          type: file.type
+        };
+        
+        uploadedFiles.push(fileData);
+        console.log("API Upload: File processed successfully:", fileData);
       } catch (error) {
         console.error("API Upload: Error processing file:", error);
       }

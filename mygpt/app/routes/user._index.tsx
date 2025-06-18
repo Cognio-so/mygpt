@@ -1,10 +1,11 @@
 import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/cloudflare";
-import { json } from "@remix-run/cloudflare";
+import { json, redirect } from "@remix-run/cloudflare";
 import UserDashboard from "~/components/user/UserDashboard";
 import UserSidebar from "~/components/user/UserSidebar";
 import { requireUserAuth } from "~/lib/auth.server";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getThemeFromCookie } from "~/lib/theme";
+import { createClient } from '@supabase/supabase-js';
 
 export const meta: MetaFunction = () => {
   return [
@@ -15,72 +16,135 @@ export const meta: MetaFunction = () => {
   ];
 };
 
+// Create admin client helper for reading GPTs
+const createAdminSupabaseClient = (env: any) => {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('❌ SUPABASE_SERVICE_ROLE_KEY not found');
+    return null;
+  }
+
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false
+    }
+  });
+};
+
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
   const { user, profile, response } = await requireUserAuth(request, env);
   const { supabase } = createSupabaseServerClient(request, env);
   const theme = getThemeFromCookie(request) || 'light';
 
-  try {
-    // Fetch custom GPTs for the user
-    const { data: agents, error } = await supabase
-      .from('custom_gpts')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+  if (!user) {
+    return redirect('/login', {
+      headers: response.headers,
+    });
+  }
 
-    if (error) {
-      console.error('Error fetching custom GPTs:', error);
-      return json({ agents: [], theme }, {
-        headers: response.headers,
-      });
+  try {
+    // Get user profile with assignments and permissions
+    const { data: userProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, role, assigned_gpts, permissions')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      console.error('❌ Error loading user profile:', profileError);
     }
 
-    // Transform agents data
-    const transformedAgents = [];
-    
-    if (agents && agents.length > 0) {
-      for (const agent of agents) {
-        // Fetch knowledge files for each agent
-        const { data: knowledgeFiles } = await supabase
-          .from('knowledge_files')
-          .select('id, file_name, file_url')
-          .eq('gpt_id', agent.id);
+    console.log('👤 User profile loaded:', {
+      id: userProfile?.id,
+      role: userProfile?.role,
+      assignedGpts: userProfile?.assigned_gpts,
+      assignedGptsCount: userProfile?.assigned_gpts?.length || 0
+    });
 
-        transformedAgents.push({
-          _id: agent.id,
-          name: agent.name,
-          description: agent.description,
-          imageUrl: agent.image_url,
-          model: agent.model,
-          capabilities: {
-            webBrowsing: agent.web_browsing,
-          },
-          createdAt: agent.created_at,
-          folder: agent.folder,
-          knowledgeBase: knowledgeFiles?.map((file: any) => ({
-            fileName: file.file_name,
-            fileUrl: file.file_url,
-          })) || [],
-        });
+    // Get all available GPTs using admin client
+    const adminClient = createAdminSupabaseClient(env);
+    let allGpts: any[] = [];
+
+    if (adminClient) {
+      const { data: gpts, error: gptsError } = await adminClient
+        .from('custom_gpts')
+        .select('id, name, description, model, image_url, web_browsing, folder, created_at')
+        .order('created_at', { ascending: false });
+
+      if (gptsError) {
+        console.error('❌ Error loading GPTs:', gptsError);
+      } else {
+        console.log('📋 All GPTs loaded:', gpts?.length || 0);
+        allGpts = gpts || [];
       }
     }
 
-    return json({ 
-      agents: transformedAgents,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: profile?.name || user.email,
+    // Transform GPTs to match the expected Agent interface
+    const agents = allGpts.map((gpt: any) => ({
+      _id: gpt.id,
+      name: gpt.name,
+      description: gpt.description,
+      model: gpt.model,
+      imageUrl: gpt.image_url,
+      capabilities: {
+        webBrowsing: gpt.web_browsing || false
+      },
+      createdAt: gpt.created_at,
+      folder: gpt.folder
+    }));
+
+    // Parse permissions if they exist
+    let permissions = null;
+    if (userProfile?.permissions) {
+      try {
+        permissions = typeof userProfile.permissions === 'string' 
+          ? JSON.parse(userProfile.permissions)
+          : userProfile.permissions;
+      } catch (e) {
+        console.error('❌ Error parsing permissions:', e);
+      }
+    }
+
+    const responseData = {
+      agents,
+      userProfile: {
+        id: userProfile?.id || user.id,
+        email: userProfile?.email || user.email || '',
+        full_name: userProfile?.full_name,
+        role: userProfile?.role || 'user',
+        assigned_gpts: userProfile?.assigned_gpts || [],
+        permissions
       },
       theme
-    }, {
+    };
+
+    console.log('🚀 Sending user dashboard data:', {
+      agentsCount: agents.length,
+      userRole: responseData.userProfile.role,
+      assignedGptsCount: responseData.userProfile.assigned_gpts.length,
+      hasPermissions: !!permissions
+    });
+
+    return json(responseData, {
       headers: response.headers,
     });
 
   } catch (error) {
-    console.error('Loader error:', error);
-    return json({ agents: [], theme }, {
+    console.error('❌ Critical error in user dashboard loader:', error);
+    return json({ 
+      agents: [],
+      userProfile: {
+        id: user.id,
+        email: user.email || '',
+        full_name: null,
+        role: 'user',
+        assigned_gpts: [],
+        permissions: null
+      },
+      error: 'Failed to load dashboard data'
+    }, {
       headers: response.headers,
     });
   }

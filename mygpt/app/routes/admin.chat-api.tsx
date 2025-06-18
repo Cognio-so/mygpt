@@ -165,35 +165,45 @@ export async function action({ request, context }: ActionFunctionArgs) {
       console.log(`🐍 Admin Chat API: Sending chat request to Python backend at ${pythonBackendUrl}`);
       
       try {
-        // First, notify the backend that the GPT is being used
-        const gptOpenedData = {
-          user_email: user.email || "",
-          gpt_id: gptId || "",
-          gpt_name: "Custom GPT",
-          file_urls: files
-            .map((file: any) => file.url)
-            .filter((url: any) => url && typeof url === 'string'),  // Ensure valid strings only
-          use_hybrid_search: true,  // Boolean
-          schema: {  // Use 'schema' key
-            model: model || "gpt-4o",
-            instructions: instructions || ""
-          },
-          api_keys: {}
-        };
+        // Check if this is the first message in a conversation
+        const isNewConversation = !conversationId;
+        
+        // Only call gpt-opened for new conversations
+        if (isNewConversation) {
+          // First, notify the backend that the GPT is being used
+          const gptOpenedData = {
+            user_email: user.email || "",
+            gpt_id: gptId || "",
+            gpt_name: "Custom GPT",
+            file_urls: files
+              .map((file: any) => file.url)
+              .filter((url: any) => url && typeof url === 'string'),
+            use_hybrid_search: true,
+            schema: {
+              model: model || "gpt-4o",
+              instructions: instructions || ""
+            },
+            api_keys: {}
+          };
 
-        console.log(`🚪 Admin Chat API: GPT-opened payload:`, JSON.stringify(gptOpenedData, null, 2));
+          console.log(`🚪 Admin Chat API: GPT-opened payload for new conversation:`, JSON.stringify(gptOpenedData, null, 2));
 
-        const gptOpenedResponse = await fetch(`${pythonBackendUrl}/gpt-opened`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(gptOpenedData)
-        });
+          const gptOpenedResponse = await fetch(`${pythonBackendUrl}/gpt-opened`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(gptOpenedData)
+          });
 
-        if (!gptOpenedResponse.ok) {
-          const errorText = await gptOpenedResponse.text();
-          console.error(`❌ Admin Chat API: GPT-opened failed (${gptOpenedResponse.status}):`, errorText);
+          if (!gptOpenedResponse.ok) {
+            const errorText = await gptOpenedResponse.text();
+            console.error(`❌ Admin Chat API: GPT-opened failed (${gptOpenedResponse.status}):`, errorText);
+          } else {
+            console.log(`✅ Admin Chat API: GPT-opened successful for new conversation`);
+          }
+        } else {
+          console.log(`ℹ️ Admin Chat API: Skipping gpt-opened call for existing conversation: ${conversationId}`);
         }
 
         // Prepare the chat stream request for the Python backend

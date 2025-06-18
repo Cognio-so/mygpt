@@ -1,44 +1,4 @@
-// Simple and reliable email service using EmailJS (free and no restrictions)
-const sendEmailWithEmailJS = async (env: any, { to, subject, html, from = null }: { to: string; subject: string; html: string; from?: string | null }) => {
-  try {
-    console.log('Using EmailJS to send email...');
-    
-    // EmailJS public endpoint (free service)
-    const serviceId = 'default_service';
-    const templateId = 'template_1';
-    const publicKey = 'YOUR_PUBLIC_KEY'; // You'll get this from EmailJS
-    
-    const templateParams = {
-      to_email: to,
-      from_name: 'MyGPT Team',
-      subject: subject,
-      message: html,
-    };
-
-    const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-        service_id: serviceId,
-        template_id: templateId,
-        user_id: publicKey,
-        template_params: templateParams,
-      }),
-    });
-
-    if (response.ok) {
-      console.log('Email sent successfully with EmailJS');
-      return { success: true, id: 'emailjs-' + Date.now() };
-    } else {
-      throw new Error(`EmailJS error: ${response.status}`);
-    }
-  } catch (error: any) {
-    console.error('EmailJS error:', error);
-    return await logEmailToConsole({ to, subject, html, from });
-  }
-};
+import { createClient } from '@supabase/supabase-js';
 
 // For development - log emails to console
 const logEmailToConsole = async ({ to, subject, html, from }: { to: string; subject: string; html: string; from?: string | null }) => {
@@ -57,262 +17,310 @@ const logEmailToConsole = async ({ to, subject, html, from }: { to: string; subj
   };
 };
 
-// Simplified email function for development
-const sendEmail = async (env: any, { to, subject, html, from = null }: { to: string; subject: string; html: string; from?: string | null }) => {
-  console.log('📧 Sending invitation email...');
-  console.log('To:', to);
-  console.log('Subject:', subject);
-  
-  // For now, just log to console for development
-  // This ensures the invitation flow works without external dependencies
-  return await logEmailToConsole({ to, subject, html, from });
-};
-
-// Proper Brevo API implementation based on official docs
-const sendEmailViaBrevo = async (env: any, { to, subject, html, from = null }: { to: string; subject: string; html: string; from?: string | null }) => {
-  try {
-    console.log('🚀 Starting Brevo email send process...');
-    console.log('📧 To:', to);
-    console.log('📝 Subject:', subject);
-    console.log('🔑 API Key exists:', !!env.BREVO_API_KEY);
-
-    if (!env.BREVO_API_KEY) {
-      throw new Error('BREVO_API_KEY not configured');
-    }
-
-    // Brevo API endpoint from official docs
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-key': env.BREVO_API_KEY,
-      },
-      body: JSON.stringify({
-        sender: { 
-          name: "MyGPT Team", 
-          email: "noreply@mygpt.work" // Use a consistent sender email
-        },
-        to: [{ email: to, name: to.split('@')[0] }],
-        subject: subject,
-        htmlContent: html,
-        textContent: `Please view this email in HTML format.`
-      }),
-    });
-
-    console.log('📡 Brevo API response status:', response.status);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Brevo API error response:', errorText);
-      
-      let errorData: any;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch {
-        errorData = { message: errorText };
-      }
-      
-      // If IP restriction error, provide helpful message
-      if (response.status === 401 && errorText.includes('IP address')) {
-        console.log('🔧 IP Restriction detected - using fallback...');
-        return await logEmailToConsole({ to, subject, html, from });
-      }
-      
-      throw new Error(`Brevo API error: ${response.status} - ${errorData.message || response.statusText}`);
-    }
-
-    const result: any = await response.json();
-    console.log('✅ Email sent successfully via Brevo:', result.messageId);
-    return { success: true, id: result.messageId };
-
-  } catch (error: any) {
-    console.error('❌ Brevo email error:', error.message);
-    console.log('🔄 Falling back to console logging...');
-    return await logEmailToConsole({ to, subject, html, from });
+// Create admin client with service role (bypasses RLS)
+const createAdminSupabaseClient = (env: any) => {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('❌ SUPABASE_SERVICE_ROLE_KEY not found');
+    return null;
   }
+
+  console.log('🔧 Creating admin client with URL:', env.SUPABASE_URL);
+  console.log('🔑 Service role key exists:', !!env.SUPABASE_SERVICE_ROLE_KEY);
+
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false
+    }
+  });
 };
 
 export const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-export const sendVerificationEmail = async (env: any, email: string, username: string, token: string) => {
-  const appUrl = env.VITE_APP_URL || 'http://localhost:5173';
-  
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border-radius: 10px; background: linear-gradient(to right, #0a0a0a, #151515); color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h1 style="margin: 10px 0; background: linear-gradient(to right, #cc2b5e, #753a88); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block;">Email Verification</h1>
-      </div>
-      <p style="margin-bottom: 15px; color: white;">Hello ${username},</p>
-      <p style="margin-bottom: 20px; color: white;">Thank you for signing up with MyGpt.work. Please verify your email by entering the following verification code:</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <div style="display: inline-block; padding: 15px 30px; background: linear-gradient(to right, #cc2b5e, #753a88); color: white; font-size: 24px; font-weight: bold; letter-spacing: 5px; border-radius: 8px;">${token}</div>
-      </div>
-      <p style="margin-bottom: 20px; color: white;">This code will expire in 30 minutes. If you didn't request this verification, please ignore this email.</p>
-      <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #aaa;">© ${new Date().getFullYear()} MyGpt.work. All rights reserved.</p>
-    </div>
-  `;
+// Enhanced invitation system with proper database operations
+export const sendInvitationEmailViaSupabase = async (env: any, email: string, role: string = 'user') => {
+  try {
+    console.log('🚀 Starting Supabase invitation process...');
+    console.log('📧 Email:', email);
+    console.log('🏷️ Role:', role);
 
-  const verificationResult: { success: boolean; id: string; note?: string } = await sendEmailViaBrevo(env, {
-    to: email,
-    subject: 'Verify Your Email - MyGpt.work',
-    html,
-    from: 'MyGPT Team <noreply@mygpt.work>'
-  });
+    // Create admin client with service role
+    const adminSupabase = createAdminSupabaseClient(env);
+    
+    if (!adminSupabase) {
+      throw new Error('Failed to create admin Supabase client - missing service role key');
+    }
 
-  return verificationResult;
+    // Try to invite user directly - this will handle both new and existing users
+    console.log('📤 Attempting to send invitation...');
+    
+    const { data, error } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
+      data: {
+        role: role,
+        invited_at: new Date().toISOString(),
+        app_name: 'MyGPT.work',
+        full_name: '' // This will be updated later
+      },
+      redirectTo: `${env.VITE_APP_URL}/auth/callback`
+    });
+
+    if (error) {
+      console.error('❌ Supabase invitation error:', error);
+      
+      // Handle specific error cases
+      if (error.message.includes('already been registered') || 
+          error.message.includes('email_exists') ||
+          error.code === 'email_exists') {
+        
+        console.log('👤 User already exists - attempting to get user info...');
+        
+        // Try to get existing user info using listUsers with email filter
+        try {
+          const { data: usersList, error: listError } = await adminSupabase.auth.admin.listUsers({
+            page: 1,
+            perPage: 1000
+          });
+
+          if (listError) {
+            console.error('❌ Error listing users:', listError);
+            throw listError;
+          }
+
+          // Find user by email
+          const existingUser = usersList?.users?.find(u => u.email === email);
+          
+          if (existingUser) {
+            console.log('✅ Found existing user:', existingUser.id);
+            return {
+              success: true,
+              id: existingUser.id,
+              user: existingUser,
+              type: 'existing_user',
+              message: 'User already exists - ready to add to team',
+              adminClient: adminSupabase // Return admin client for database operations
+            };
+          }
+        } catch (listError) {
+          console.error('❌ Error finding existing user:', listError);
+        }
+
+        // Fallback for existing user case
+        return {
+          success: true,
+          id: 'existing-user-' + Date.now(),
+          user: null,
+          type: 'existing_user',
+          message: 'User already registered - ready to add to team',
+          adminClient: adminSupabase // Return admin client for database operations
+        };
+      }
+      
+      // For other errors, throw to be caught by outer catch
+      throw error;
+    }
+
+    console.log('✅ New invitation sent successfully:', data);
+    return { 
+      success: true, 
+      id: data.user?.id || 'supabase-invite-' + Date.now(),
+      user: data.user,
+      type: 'new_invitation',
+      message: 'Invitation sent successfully',
+      adminClient: adminSupabase // Return admin client for database operations
+    };
+
+  } catch (error: any) {
+    console.error('❌ Supabase invitation process error:', error.message);
+    console.log('🔄 Falling back to console logging...');
+    
+    // Fallback to console log
+    return await logEmailToConsole({
+      to: email,
+      subject: '🎉 You\'re invited to join MyGPT team!',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2>🎉 Welcome to MyGPT Team!</h2>
+          <p>Hi there,</p>
+          <p>You've been invited to join our MyGPT team with the role: <strong>${role}</strong></p>
+          <p>Please visit <a href="${env.VITE_APP_URL}">MyGPT.work</a> to get started.</p>
+          <p>Best regards,<br>MyGPT Team</p>
+          <hr>
+          <p style="font-size: 12px; color: #666;">© ${new Date().getFullYear()} MyGPT.work</p>
+        </div>
+      `,
+      from: 'MyGPT Team <noreply@mygpt.work>'
+    });
+  }
 };
 
-export const sendPasswordResetEmail = async (env: any, email: string, username: string, token: string) => {
-  const appUrl = env.VITE_APP_URL || 'http://localhost:5173';
-  const resetUrl = `${appUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+// Send notification to existing users
+export const sendTeamNotificationViaSupabase = async (env: any, email: string, role: string, teamName: string = 'MyGPT') => {
+  console.log('📧 Sending team notification to existing user:', email);
   
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border-radius: 10px; background: linear-gradient(to right, #0a0a0a, #151515); color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h1 style="margin: 10px 0; background: linear-gradient(to right, #cc2b5e, #753a88); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block;">Password Reset</h1>
+  return await logEmailToConsole({
+    to: email,
+    subject: `🎉 You've been added to ${teamName} team!`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2>🎉 Welcome to ${teamName} Team!</h2>
+        <p>Hi there,</p>
+        <p>Great news! You've been added to our ${teamName} team with the role: <strong>${role}</strong></p>
+        <p>You can now access your new team features by logging into <a href="${env.VITE_APP_URL}">MyGPT.work</a></p>
+        <div style="background: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 15px; margin: 20px 0;">
+          <p><strong>What's Next?</strong></p>
+          <ul>
+            <li>Log into your account at MyGPT.work</li>
+            <li>Explore your new team permissions</li>
+            <li>Start collaborating with your team members</li>
+          </ul>
       </div>
-      <p style="margin-bottom: 15px; color: white;">Hello ${username},</p>
-      <p style="margin-bottom: 20px; color: white;">We received a request to reset your password. Click the button below to set a new password:</p>
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${resetUrl}" style="display: inline-block; padding: 12px 25px; background: linear-gradient(to right, #cc2b5e, #753a88); color: white; text-decoration: none; font-weight: bold; border-radius: 5px; text-transform: uppercase;">Reset Password</a>
+        <p>Best regards,<br>MyGPT Team</p>
+        <hr>
+        <p style="font-size: 12px; color: #666;">© ${new Date().getFullYear()} MyGPT.work</p>
       </div>
-      <p style="margin-bottom: 20px; color: white;">This link will expire in 30 minutes. If you didn't request a password reset, please ignore this email.</p>
-      <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #aaa;">© ${new Date().getFullYear()} MyGpt.work. All rights reserved.</p>
-    </div>
-  `;
+    `,
+    from: 'MyGPT Team <noreply@mygpt.work>'
+  });
+};
 
-  const resetResult: { success: boolean; id: string; note?: string } = await sendEmailViaBrevo(env, {
+// Get user by email using admin client
+export const getUserByEmailViaSupabase = async (env: any, email: string) => {
+  try {
+    const adminSupabase = createAdminSupabaseClient(env);
+    
+    if (!adminSupabase) {
+      throw new Error('Failed to create admin Supabase client');
+    }
+
+    console.log('🔍 Searching for user by email:', email);
+    
+    // List users and find by email
+    const { data: usersList, error } = await adminSupabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000
+    });
+
+    if (error) {
+      console.error('❌ Error listing users:', error);
+      throw error;
+    }
+
+    // Find user by email
+    const user = usersList?.users?.find(u => u.email === email);
+    
+    if (user) {
+      console.log('✅ Found user:', user.id);
+      return { user, error: null };
+    } else {
+      console.log('❌ User not found');
+      return { user: null, error: null };
+    }
+
+  } catch (error: any) {
+    console.error('❌ Error getting user by email:', error);
+    return { user: null, error };
+  }
+};
+
+// Use Supabase Auth for password reset
+export const sendPasswordResetViaSupabase = async (supabase: any, env: any, email: string) => {
+  try {
+    console.log('🚀 Starting Supabase password reset...');
+    console.log('📧 For email:', email);
+
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${env.VITE_APP_URL}/auth/callback?type=recovery`
+    });
+
+    if (error) {
+      console.error('❌ Supabase password reset error:', error);
+      throw error;
+    }
+
+    console.log('✅ Password reset sent successfully via Supabase');
+    return { 
+      success: true, 
+      id: 'supabase-reset-' + Date.now()
+    };
+
+  } catch (error: any) {
+    console.error('❌ Supabase password reset error:', error.message);
+    console.log('🔄 Falling back to console logging...');
+    
+    return await logEmailToConsole({
     to: email,
     subject: 'Reset Your Password - MyGpt.work',
-    html,
+      html: `<p>Password reset requested for ${email}</p>`,
     from: 'MyGPT Team <noreply@mygpt.work>'
   });
-
-  return resetResult;
+  }
 };
 
-export const sendInvitationEmail = async (env: any, email: string, inviterName: string, invitationLink: string, role: string) => {
-  console.log('🎉 sendInvitationEmail function called');
-  console.log('📋 Parameters:', { email, inviterName, role });
-  
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Team Invitation - MyGPT</title>
-</head>
-<body style="margin: 0; padding: 20px; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-    <div style="max-width: 600px; margin: 0 auto; background: linear-gradient(135deg, #0a0a0a 0%, #151515 100%); color: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
-        
-        <!-- Header -->
-        <div style="text-align: center; padding: 40px 20px 20px; background: linear-gradient(135deg, #cc2b5e 0%, #753a88 100%);">
-            <h1 style="margin: 0; font-size: 28px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">🎉 You're Invited!</h1>
-            <p style="margin: 10px 0 0; font-size: 16px; opacity: 0.9;">Join our MyGPT team</p>
-        </div>
+// Use Supabase Auth for email verification (this is automatic with Supabase)
+export const sendVerificationEmailViaSupabase = async (supabase: any, env: any, email: string) => {
+  try {
+    console.log('🚀 Starting Supabase email verification...');
+    console.log('📧 For email:', email);
 
-        <!-- Content -->
-        <div style="padding: 30px;">
-            <p style="font-size: 18px; margin-bottom: 20px; line-height: 1.6;">Hello there! 👋</p>
-            
-            <p style="font-size: 16px; line-height: 1.6; margin-bottom: 25px;">
-                <strong style="color: #cc2b5e;">${inviterName}</strong> has invited you to join 
-                <strong>MyGPT.work</strong> as a <strong style="color: #753a88;">${role}</strong>.
-            </p>
+    // Supabase handles email verification automatically during signup
+    // But we can resend verification if needed
+    const { data, error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+      options: {
+        emailRedirectTo: `${env.VITE_APP_URL}/auth/callback`
+      }
+    });
 
-            <!-- CTA Button -->
-            <div style="text-align: center; margin: 40px 0;">
-                <a href="${invitationLink}" 
-                   style="display: inline-block; 
-                          padding: 16px 32px; 
-                          background: linear-gradient(135deg, #cc2b5e 0%, #753a88 100%); 
-                          color: white; 
-                          text-decoration: none; 
-                          font-weight: bold; 
-                          border-radius: 8px; 
-                          font-size: 18px;
-                          box-shadow: 0 4px 15px rgba(204, 43, 94, 0.3);
-                          transition: transform 0.2s;">
-                    🚀 Accept Invitation
-                </a>
-            </div>
+    if (error) {
+      console.error('❌ Supabase verification error:', error);
+      throw error;
+    }
 
-            <!-- Features -->
-            <div style="background: rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 20px; margin: 25px 0;">
-                <h3 style="margin: 0 0 15px; color: #cc2b5e; font-size: 16px;">What you can do as a ${role}:</h3>
-                <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
-                    ${role === 'admin' ? `
-                        <li>✅ Full access including user management</li>
-                        <li>✅ Create and manage GPTs</li>
-                        <li>✅ Invite new team members</li>
-                        <li>✅ Access all team resources</li>
-                    ` : `
-                        <li>✅ Use all available GPTs</li>
-                        <li>✅ Access team resources</li>
-                        <li>✅ Collaborate with team members</li>
-                        <li>✅ Participate in team activities</li>
-                    `}
-                </ul>
-            </div>
+    console.log('✅ Verification email resent successfully via Supabase');
+    return { 
+      success: true, 
+      id: 'supabase-verify-' + Date.now()
+    };
 
-            <!-- Manual Link -->
-            <div style="background: rgba(204, 43, 94, 0.1); border-radius: 8px; padding: 15px; margin: 25px 0;">
-                <p style="margin: 0 0 10px; font-weight: bold; color: #cc2b5e; font-size: 14px;">🔗 Can't click the button? Copy this link:</p>
-                <p style="margin: 0; font-family: monospace; font-size: 12px; word-break: break-all; color: #ccc; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px;">
-                    ${invitationLink}
-                </p>
-            </div>
-
-            <p style="font-size: 14px; color: #ccc; margin-top: 30px; line-height: 1.5;">
-                ⏰ This invitation expires in 7 days. If you didn't expect this invitation, you can safely ignore this email.
-            </p>
-        </div>
-
-        <!-- Footer -->
-        <div style="text-align: center; padding: 20px; background: rgba(0,0,0,0.3); font-size: 12px; color: #aaa;">
-            <p style="margin: 0;">© ${new Date().getFullYear()} MyGPT.work • Powered by AI • Built with ❤️</p>
-        </div>
-    </div>
-</body>
-</html>`;
-
-  console.log('📧 Sending invitation email...');
-  
-  const emailResult: { success: boolean; id: string; note?: string } = await sendEmailViaBrevo(env, {
+  } catch (error: any) {
+    console.error('❌ Supabase verification error:', error.message);
+    console.log('🔄 Falling back to console logging...');
+    
+    return await logEmailToConsole({
     to: email,
-    subject: '🎉 You\'re invited to join MyGPT team!',
-    html,
+      subject: 'Verify Your Email - MyGpt.work',
+      html: `<p>Email verification for ${email}</p>`,
     from: 'MyGPT Team <noreply@mygpt.work>'
   });
-  
-  console.log('📬 Final email result:', emailResult);
-  return emailResult;
+  }
 };
 
-export const sendTeamEmail = async (env: any, email: string, subject: string, message: string, senderName: string) => {
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border-radius: 10px; background: linear-gradient(to right, #0a0a0a, #151515); color: white; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h1 style="margin: 10px 0; background: linear-gradient(to right, #cc2b5e, #753a88); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block;">Team Message</h1>
-      </div>
-      <div style="margin-bottom: 20px; padding: 20px; background: rgba(255, 255, 255, 0.05); border-radius: 8px;">
-        <div style="white-space: pre-wrap; color: white; line-height: 1.6;">${message}</div>
-      </div>
-      <p style="text-align: right; color: #ccc; font-style: italic;">— ${senderName}</p>
-      <p style="text-align: center; margin-top: 30px; font-size: 12px; color: #aaa;">© ${new Date().getFullYear()} MyGpt.work. All rights reserved.</p>
-    </div>
-  `;
-
-  const teamEmailResult: { success: boolean; id: string; note?: string } = await sendEmailViaBrevo(env, {
+// Simple team communication (for internal messages, not auth-related)
+export const sendTeamMessage = async (env: any, email: string, subject: string, message: string, senderName: string) => {
+  console.log('📧 Team message would be sent to:', email);
+  console.log('📝 Subject:', subject);
+  console.log('💬 Message:', message);
+  console.log('👤 From:', senderName);
+  
+  return await logEmailToConsole({
     to: email,
-    subject: subject,
-    html,
-    from: 'MyGPT Team <noreply@mygpt.work>'
+    subject: `[MyGPT Team] ${subject}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2>${subject}</h2>
+        <p>Hi there,</p>
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <p style="white-space: pre-wrap;">${message}</p>
+        </div>
+        <p>Best regards,<br>${senderName}</p>
+        <hr>
+        <p style="font-size: 12px; color: #666;">© ${new Date().getFullYear()} MyGPT.work</p>
+      </div>
+    `,
+    from: `${senderName} via MyGPT <noreply@mygpt.work>`
   });
-
-  return teamEmailResult;
 }; 

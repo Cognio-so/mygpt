@@ -24,6 +24,21 @@ interface Agent {
   assignedUsers?: string[];
 }
 
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: 'admin' | 'user';
+  assigned_gpts: string[] | null;
+  permissions: {
+    canCreateGpt: boolean;
+    canEditGpt: boolean;
+    canDeleteGpt: boolean;
+    canInviteUsers: boolean;
+    canManageTeam: boolean;
+  } | null;
+}
+
 // Model icons mapping
 const modelIcons: { [key: string]: JSX.Element } = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
@@ -103,7 +118,10 @@ interface UserDashboardProps {
 }
 
 const UserDashboard: React.FC<UserDashboardProps> = ({ userName = "User", onNavigate }) => {
-  const data = useLoaderData<{ agents: Agent[] }>();
+  const data = useLoaderData<{ 
+    agents: Agent[];
+    userProfile?: UserProfile;
+  }>();
   const { theme, setTheme } = useTheme();
   
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -127,29 +145,109 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ userName = "User", onNavi
     }
   }, [data]);
 
-  // Filter and sort agents
-  const filteredAndSortedAgents = useMemo(() => {
-    if (!data?.agents) return [];
+  // Enhanced debugging for user profile and GPT assignments
+  useEffect(() => {
+    console.log('🔍 UserDashboard mounted with data:', {
+      hasAgents: !!data?.agents,
+      agentsCount: data?.agents?.length || 0,
+      userProfile: data?.userProfile,
+      userRole: data?.userProfile?.role,
+      assignedGpts: data?.userProfile?.assigned_gpts,
+      assignedGptsCount: data?.userProfile?.assigned_gpts?.length || 0,
+      userPermissions: data?.userProfile?.permissions
+    });
 
-    let filtered = data.agents.filter(agent =>
-      agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      agent.description?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    if (data?.userProfile?.assigned_gpts) {
+      console.log('📋 User assigned GPTs:', data.userProfile.assigned_gpts);
+    }
+  }, [data]);
+
+  // Add this debugging check after loading the data
+  useEffect(() => {
+    if (data?.userProfile?.assigned_gpts && data?.agents) {
+      // Check for assigned GPTs that don't exist in the agents list
+      const missingGpts = data.userProfile.assigned_gpts.filter(
+        assignedId => !data.agents.some(agent => agent._id === assignedId)
+      );
+      
+      if (missingGpts.length > 0) {
+        console.warn('⚠️ UserDashboard: Found assigned GPTs that don\'t exist:', missingGpts);
+        // This indicates a data integrity issue that should be fixed in the team management system
+      }
+    }
+  }, [data]);
+
+  // Filter and sort agents based on user assignments
+  const filteredAndSortedAgents = useMemo(() => {
+    if (!data?.agents) {
+      console.log('❌ No agents data available');
+      return [];
+    }
+
+    let filtered = data.agents;
+    console.log('🔍 Starting with all agents:', filtered.length);
+    
+    // Filter based on user's assigned GPTs and role
+    if (data.userProfile?.role === 'admin') {
+      // Admin sees all GPTs - no filtering needed
+      console.log('✅ User is admin, showing all GPTs');
+    } else if (data.userProfile?.assigned_gpts && data.userProfile.assigned_gpts.length > 0) {
+      // User has specific GPT assignments, filter by them
+      console.log('🔍 Filtering GPTs by user assignments:', data.userProfile.assigned_gpts);
+      filtered = filtered.filter(agent => {
+        const isAssigned = data.userProfile?.assigned_gpts?.includes(agent._id);
+        console.log(`  - ${agent.name} (${agent._id}): ${isAssigned ? 'ASSIGNED' : 'NOT ASSIGNED'}`);
+        return isAssigned;
+      });
+      console.log('✅ Filtered to assigned GPTs:', filtered.length);
+    } else if (data.userProfile?.role === 'user') {
+      // User has no assignments and is not admin, show empty list
+      console.log('❌ User has no GPT assignments, showing empty list');
+      filtered = [];
+    } else {
+      // No user profile data, show all (fallback for backward compatibility)
+      console.log('⚠️ No user profile data, showing all GPTs as fallback');
+    }
+
+    // Apply search filter
+    if (searchTerm) {
+      const beforeSearch = filtered.length;
+      filtered = filtered.filter(agent =>
+        agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        agent.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      console.log(`🔍 Search filter applied: ${beforeSearch} -> ${filtered.length} agents`);
+    }
 
     // Apply sorting
     if (sortOption === 'Latest') {
       filtered = filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      console.log('📅 Sorted by latest');
     } else if (sortOption === 'Older') {
       filtered = filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      console.log('📅 Sorted by oldest');
     }
 
+    console.log('✅ Final filtered agents:', filtered.length);
     return filtered;
-  }, [data?.agents, searchTerm, sortOption]);
+  }, [data?.agents, data?.userProfile, searchTerm, sortOption]);
 
-  // Handle navigation to chat
+  // Handle navigation to chat with enhanced error handling
   const handleNavigateToChat = useCallback((agentId: string) => {
+    console.log('🚀 UserDashboard: Navigating to chat with GPT ID:', agentId);
+    
+    // Verify the agent exists in our data (similar to admin approach)
+    const gptExists = data?.agents.some(agent => agent._id === agentId);
+    
+    if (!gptExists) {
+      console.error('❌ UserDashboard: Attempted to navigate to non-existent GPT:', agentId);
+      alert('This GPT is assigned to you but appears to be unavailable. Please contact your administrator.');
+      return;
+    }
+    
+    console.log('✅ UserDashboard: GPT verified, navigating to:', `/user/chat/${agentId}`);
     window.location.href = `/user/chat/${agentId}`;
-  }, []);
+  }, [data?.agents]);
 
   // Theme toggle
   const toggleTheme = useCallback(() => {
@@ -202,6 +300,37 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ userName = "User", onNavi
     );
   }
 
+  // Helper function to get the appropriate empty state message
+  const getEmptyStateMessage = () => {
+    if (data?.userProfile?.role === 'admin') {
+      return {
+        title: 'No GPTs Available',
+        description: searchTerm 
+          ? 'No GPTs match your search criteria.' 
+          : 'No GPTs have been created yet. Create your first GPT to get started.',
+        showCreateButton: true
+      };
+    } else if (data?.userProfile?.assigned_gpts && data?.userProfile.assigned_gpts.length === 0) {
+      return {
+        title: 'No GPTs Assigned',
+        description: searchTerm 
+          ? 'No assigned GPTs match your search criteria.' 
+          : 'No GPTs have been assigned to you yet. Contact your administrator for access to GPTs.',
+        showCreateButton: false
+      };
+    } else {
+      return {
+        title: 'No GPTs Available',
+        description: searchTerm 
+          ? 'No GPTs match your search criteria.' 
+          : 'Loading your GPTs...',
+        showCreateButton: false
+      };
+    }
+  };
+
+  const emptyState = getEmptyStateMessage();
+
   return (
     <div className={`flex h-screen font-sans ${theme === 'dark' ? 'dark' : ''}`}>
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 dark:bg-black text-black dark:text-white">
@@ -219,6 +348,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ userName = "User", onNavi
           <div className="hidden sm:flex items-center justify-between">
             <div className="flex items-center">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+              {/* User role and assignment info */}
+              <div className="ml-4 text-sm text-gray-500 dark:text-gray-400">
+                {data?.userProfile?.role === 'admin' ? (
+                  <span className="bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 px-2 py-1 rounded text-xs font-medium">
+                    Admin
+                  </span>
+                ) : (
+                  <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded text-xs font-medium">
+                    {data?.userProfile?.assigned_gpts?.length || 0} GPTs assigned
+                  </span>
+                )}
+              </div>
               <div className="flex items-center ml-4 gap-2">
                 <button
                   onClick={() => setViewMode('grid')}
@@ -295,6 +436,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ userName = "User", onNavi
                 {theme === 'dark' ? <RiSunFill size={20} className="text-yellow-400" /> : <RiMoonFill size={20} className="text-gray-700" />}
               </button>
             </div>
+            {/* Mobile user info */}
+            <div className="text-center mb-3">
+              {data?.userProfile?.role === 'admin' ? (
+                <span className="bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 px-2 py-1 rounded text-xs font-medium">
+                  Admin Access
+                </span>
+              ) : (
+                <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded text-xs font-medium">
+                  {data?.userProfile?.assigned_gpts?.length || 0} GPTs assigned
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <div className="flex-1 relative">
                 <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -336,24 +489,73 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ userName = "User", onNavi
                 <div className="w-24 h-24 mx-auto mb-6 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
                   <FaRobot size={32} className="text-gray-400 dark:text-gray-600" />
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No GPTs Available</h3>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                  {emptyState.title}
+                </h3>
                 <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
-                  {searchTerm ? 'No GPTs match your search criteria.' : 'No GPTs have been assigned to you yet. Contact your administrator for access.'}
+                  {emptyState.description}
                 </p>
+                {emptyState.showCreateButton && (
+                  <Link
+                    to="/admin/create-gpt"
+                    className="inline-flex items-center gap-2 bg-blue-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition-colors"
+                  >
+                    <FiPlus size={20} />
+                    Create Your First GPT
+                  </Link>
+                )}
+                {/* Debug info for development */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mt-8 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-left text-sm">
+                    <h4 className="font-medium mb-2">Debug Info:</h4>
+                    <pre className="text-xs overflow-auto">
+                      {JSON.stringify({
+                        userRole: data?.userProfile?.role,
+                        assignedGpts: data?.userProfile?.assigned_gpts,
+                        totalAgents: data?.agents?.length,
+                        filteredAgents: filteredAndSortedAgents.length,
+                        searchTerm: searchTerm
+                      }, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className={viewMode === 'grid' 
-                ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6" 
-                : "space-y-4"
-              }>
-                {filteredAndSortedAgents.map((agent) => (
-                  <UserAgentCard
-                    key={agent._id}
-                    agent={agent}
-                    onClick={() => handleNavigateToChat(agent._id)}
-                  />
-                ))}
-              </div>
+              <>
+                {/* Results summary */}
+                <div className="mb-6 flex items-center justify-between">
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    Showing {filteredAndSortedAgents.length} of {data?.agents?.length || 0} GPTs
+                    {data?.userProfile?.role !== 'admin' && (
+                      <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
+                        Assigned to you
+                      </span>
+                    )}
+                  </div>
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      Clear search
+                    </button>
+                  )}
+                </div>
+
+                {/* GPTs Grid/List */}
+                <div className={viewMode === 'grid' 
+                  ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6" 
+                  : "space-y-4"
+                }>
+                  {filteredAndSortedAgents.map((agent) => (
+                    <UserAgentCard
+                      key={agent._id}
+                      agent={agent}
+                      onClick={() => handleNavigateToChat(agent._id)}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </main>
