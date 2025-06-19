@@ -60,72 +60,21 @@ interface LoadingState {
 const renderMarkdownSafely = (content: string) => {
   if (!content) return null;
 
-  const processInline = (text: string): (string | JSX.Element)[] => {
-    if (!text) return [];
-
-    const nodes: (string | JSX.Element)[] = [];
-    let lastIndex = 0;
-
-    const regex = /(!\[.*?\]\(.*?\))|(\[.*?\]\(.*?\))|(\*\*.*?\*\*)|(__.*?__)|(\*.*?\*)|(_.*?_)|(~~.*?~~)|(`.*?`)/g;
-
-    const matches = Array.from(text.matchAll(regex));
-
-    for (const match of matches) {
-      const [fullMatch] = match;
-      const index = match.index!;
-
-      if (index > lastIndex) {
-        nodes.push(text.substring(lastIndex, index));
-      }
-
-      if (fullMatch.startsWith('![')) {
-        const [_, alt, src] = fullMatch.match(/!\[(.*?)\]\((.*?)\)/) || [];
-        nodes.push(<img key={index} src={src} alt={alt} className="max-w-full" />);
-      } else if (fullMatch.startsWith('[')) {
-        const [_, linkText, href] = fullMatch.match(/\[(.*?)\]\((.*?)\)/) || [];
-        nodes.push(<a key={index} href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">{processInline(linkText)}</a>);
-      } else if (fullMatch.startsWith('**') || fullMatch.startsWith('__')) {
-        nodes.push(<strong key={index}>{processInline(fullMatch.slice(2, -2))}</strong>);
-      } else if (fullMatch.startsWith('*') || fullMatch.startsWith('_')) {
-        nodes.push(<em key={index}>{processInline(fullMatch.slice(1, -1))}</em>);
-      } else if (fullMatch.startsWith('~~')) {
-        nodes.push(<del key={index}>{processInline(fullMatch.slice(2, -2))}</del>);
-      } else if (fullMatch.startsWith('`')) {
-        nodes.push(<code key={index} className="bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 text-sm font-mono">{fullMatch.slice(1, -1)}</code>);
-      }
-
-      lastIndex = index + fullMatch.length;
-    }
-
-    if (lastIndex < text.length) {
-      nodes.push(text.substring(lastIndex));
-    }
-
-    const result: (string | JSX.Element | React.ReactElement)[] = [];
-    nodes.forEach((node, i) => {
-        if (typeof node === 'string') {
-            const parts = node.split('\n');
-            parts.forEach((part, j) => {
-                result.push(part);
-                if (j < parts.length - 1) {
-                    result.push(<br key={`br-${i}-${j}`} />);
-                }
-            });
-        } else {
-            result.push(node);
-        }
-    });
-
-    return result as (string | JSX.Element)[];
-  };
-
+  // Simple and SSR-safe markdown renderer
   const lines = content.split('\n');
-  const blocks: JSX.Element[] = [];
+  const elements: React.ReactNode[] = [];
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
 
+    // Skip empty lines
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // Code blocks
     if (line.startsWith('```')) {
       const lang = line.substring(3).trim();
       const codeLines = [];
@@ -134,121 +83,114 @@ const renderMarkdownSafely = (content: string) => {
         codeLines.push(lines[i]);
         i++;
       }
-      blocks.push(
-        <pre key={i} className="bg-gray-800 text-white p-4 rounded-md overflow-x-auto my-2">
-          <code className={`language-${lang}`}>{codeLines.join('\n')}</code>
+      elements.push(
+        <pre key={`code-${i}-${Math.random()}`} className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4">
+          <code>{codeLines.join('\n')}</code>
         </pre>
       );
       i++;
       continue;
     }
 
-    const headingMatch = line.match(/^(#{1,6})\s(.*)/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const Tag = `h${level}` as keyof JSX.IntrinsicElements;
-      const headingContent = headingMatch[2];
-      const classes = ["text-2xl font-bold my-4", "text-xl font-bold my-3", "text-lg font-bold my-2", "text-md font-bold my-1", "text-sm font-bold", "text-xs font-bold"];
-      blocks.push(<Tag key={i} className={classes[level - 1]}>{processInline(headingContent)}</Tag>);
+    // Headings
+    if (line.startsWith('#')) {
+      const level = line.match(/^#+/)?.[0].length || 1;
+      const text = line.replace(/^#+\s*/, '');
+      const HeadingTag = `h${Math.min(level, 6)}` as keyof JSX.IntrinsicElements;
+      const headingClasses = [
+        "text-2xl font-bold mt-6 mb-4",
+        "text-xl font-bold mt-5 mb-3", 
+        "text-lg font-bold mt-4 mb-3",
+        "text-base font-bold mt-3 mb-2",
+        "text-sm font-bold mt-2 mb-2",
+        "text-xs font-bold mt-2 mb-1"
+      ];
+      
+      elements.push(
+        <HeadingTag key={`heading-${i}-${Math.random()}`} className={headingClasses[level - 1] || headingClasses[5]}>
+          {processSimpleInline(text)}
+        </HeadingTag>
+      );
       i++;
       continue;
     }
 
-    if (line.match(/^[\*\-\+]\s/)) {
+    // Lists
+    if (line.match(/^[\*\-\+]\s/) || line.match(/^\d+\.\s/)) {
+      const isOrdered = line.match(/^\d+\.\s/);
       const listItems = [];
-      while (i < lines.length && lines[i].match(/^[\*\-\+]\s/)) {
-        listItems.push(lines[i].substring(2));
+      
+      while (i < lines.length && (lines[i].match(/^[\*\-\+]\s/) || lines[i].match(/^\d+\.\s/))) {
+        const itemText = lines[i].replace(/^[\*\-\+]\s/, '').replace(/^\d+\.\s/, '');
+        listItems.push(itemText);
         i++;
       }
-      blocks.push(
-        <ul key={i} className="list-disc pl-5 space-y-1 my-2">
-          {listItems.map((item, index) => <li key={index}>{processInline(item)}</li>)}
-        </ul>
+      
+      const ListTag = isOrdered ? 'ol' : 'ul';
+      const listClass = isOrdered ? 'list-decimal' : 'list-disc';
+      
+      elements.push(
+        <ListTag key={`list-${i}-${Math.random()}`} className={`${listClass} pl-6 space-y-1 my-3`}>
+          {listItems.map((item, idx) => (
+            <li key={`item-${idx}-${Math.random()}`}>
+              {processSimpleInline(item)}
+            </li>
+          ))}
+        </ListTag>
       );
       continue;
     }
 
-    if (line.match(/^\d+\.\s/)) {
-      const listItems = [];
-      while (i < lines.length && lines[i].match(/^\d+\.\s/)) {
-        listItems.push(lines[i].replace(/^\d+\.\s/, ''));
-        i++;
-      }
-      blocks.push(
-        <ol key={i} className="list-decimal pl-5 space-y-1 my-2">
-          {listItems.map((item, index) => <li key={index}>{processInline(item)}</li>)}
-        </ol>
-      );
-      continue;
-    }
-    
+    // Blockquotes
     if (line.startsWith('>')) {
-      const bqLines = [];
+      const quoteLines = [];
       while (i < lines.length && lines[i].startsWith('>')) {
-          bqLines.push(lines[i].substring(1).trim());
-          i++;
+        quoteLines.push(lines[i].substring(1).trim());
+        i++;
       }
-      blocks.push(<blockquote key={i} className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic my-2">{bqLines.map((l, idx) => <p key={idx}>{processInline(l)}</p>)}</blockquote>);
+      elements.push(
+        <blockquote key={`quote-${i}-${Math.random()}`} className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
+          {quoteLines.map((quoteLine, idx) => (
+            <p key={`quote-line-${idx}-${Math.random()}`}>
+              {processSimpleInline(quoteLine)}
+            </p>
+          ))}
+        </blockquote>
+      );
       continue;
     }
 
-    if (line.match(/^(---|___|\*\*\*)$/)) {
-        blocks.push(<hr key={i} className="my-4 border-gray-200 dark:border-gray-700" />);
-        i++;
-        continue;
-    }
-    
-    if (line.includes('|') && i + 1 < lines.length && lines[i+1].includes('|') && lines[i+1].match(/^\|(?:\s*:?-+:?\s*\|)+/)) {
-        const headerLine = line;
-        const separatorLine = lines[i+1];
-        const headerCells = headerLine.split('|').map(s => s.trim()).slice(1, -1);
-        const alignments = separatorLine.split('|').map(s => s.trim()).slice(1,-1).map(s => {
-            if (s.startsWith(':') && s.endsWith(':')) return 'center';
-            if (s.endsWith(':')) return 'right';
-            return 'left';
-        });
-
-        const bodyRows = [];
-        i += 2;
-        while (i < lines.length && lines[i].includes('|')) {
-            bodyRows.push(lines[i].split('|').map(s => s.trim()).slice(1, -1));
-            i++;
-        }
-        
-        blocks.push(
-            <table key={i} className="w-full border-collapse border border-gray-300 dark:border-gray-600 my-4">
-                <thead>
-                    <tr className="bg-gray-100 dark:bg-gray-800">
-                        {headerCells.map((h, idx) => <th key={idx} className={`p-2 border border-gray-300 dark:border-gray-600 text-${alignments[idx]}`}>{processInline(h)}</th>)}
-                    </tr>
-                </thead>
-                <tbody>
-                    {bodyRows.map((row, rowIdx) => (
-                        <tr key={rowIdx} className="bg-white dark:bg-gray-900 even:bg-gray-50 dark:even:bg-gray-800/50">
-                            {row.map((cell, cellIdx) => <td key={cellIdx} className={`p-2 border border-gray-300 dark:border-gray-600 text-${alignments[cellIdx]}`}>{processInline(cell)}</td>)}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        );
-        continue;
-    }
-
-    if (line.trim() !== '') {
-      let paraLines = [line];
-      i++;
-      while (i < lines.length && lines[i].trim() !== '' && !lines[i].match(/^(#|`{3}|>|---|\*|\-|\+|\d+\.|\s*\|)/)) {
-        paraLines.push(lines[i]);
-        i++;
-      }
-      blocks.push(<p key={i} className="my-2">{processInline(paraLines.join('\n'))}</p>);
-      continue;
-    }
-
+    // Regular paragraphs
+    elements.push(
+      <p key={`para-${i}-${Math.random()}`} className="my-3 leading-relaxed">
+        {processSimpleInline(line)}
+      </p>
+    );
     i++;
   }
 
-  return <div className="markdown-content">{blocks.map((b, i) => <React.Fragment key={i}>{b}</React.Fragment>)}</div>;
+  return <div className="markdown-content">{elements}</div>;
+};
+
+// Simple inline processing function
+const processSimpleInline = (text: string): React.ReactNode => {
+  if (!text) return text;
+
+  // Process bold text
+  text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/__(.*?)__/g, '<strong>$1</strong>');
+  
+  // Process italic text
+  text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  text = text.replace(/_(.*?)_/g, '<em>$1</em>');
+  
+  // Process inline code
+  text = text.replace(/`(.*?)`/g, '<code class="bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 text-sm font-mono">$1</code>');
+  
+  // Process links
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">$1</a>');
+
+  return <span dangerouslySetInnerHTML={{ __html: text }} />;
 };
 
 const MarkdownStyles = () => (
