@@ -12,7 +12,7 @@ import { createSupabaseServerClient } from "~/lib/supabase.server";
 import type { FileAttachment } from '~/lib/database.types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
+import type { Components } from 'react-markdown';
 
 // Define interfaces
 interface User {
@@ -61,96 +61,132 @@ interface LoadingState {
 const renderMarkdownSafely = (content: string) => {
   if (!content) return null;
 
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
-      components={{
-        // Custom components for better styling
-        h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white">{children}</h1>,
-        h2: ({ children }) => <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white">{children}</h2>,
-        h3: ({ children }) => <h3 className="text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white">{children}</h3>,
-        h4: ({ children }) => <h4 className="text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white">{children}</h4>,
-        h5: ({ children }) => <h5 className="text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white">{children}</h5>,
-        h6: ({ children }) => <h6 className="text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white">{children}</h6>,
-        p: ({ children }) => <p className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">{children}</p>,
-        ul: ({ children }) => <ul className="list-disc pl-6 space-y-1 my-3">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal pl-6 space-y-1 my-3">{children}</ol>,
-        li: ({ children }) => <li className="text-gray-700 dark:text-gray-300">{children}</li>,
-        blockquote: ({ children }) => (
-          <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
-            {children}
-          </blockquote>
-        ),
-        code: ({ inline, className, children, ...props }: { inline?: boolean, className?: string, children: React.ReactNode } & React.HTMLProps<HTMLElement>) => {
-          if (inline) {
-            return (
-              <code 
-                className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono" 
-                {...props}
-              >
-                {children}
-              </code>
-            );
-          }
-          return (
-            <code className={`${className} text-sm`} {...props}>
-              {children}
-            </code>
-          );
-        },
-        pre: ({ children }) => (
-          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4 border">
-            {children}
-          </pre>
-        ),
-        a: ({ href, children }) => (
-          <a 
-            href={href} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-blue-500 hover:text-blue-700 underline"
+  const components: Components = {
+    h1: ({ children }) => (
+      <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white">
+        {children}
+      </h1>
+    ),
+    h2: ({ children }) => (
+      <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white">
+        {children}
+      </h2>
+    ),
+    h3: ({ children }) => (
+      <h3 className="text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white">
+        {children}
+      </h3>
+    ),
+    h4: ({ children }) => (
+      <h4 className="text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white">
+        {children}
+      </h4>
+    ),
+    h5: ({ children }) => (
+      <h5 className="text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white">
+        {children}
+      </h5>
+    ),
+    h6: ({ children }) => (
+      <h6 className="text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white">
+        {children}
+      </h6>
+    ),
+    p: ({ children }) => (
+      <p className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">
+        {children}
+      </p>
+    ),
+    ul: ({ children }) => (
+      <ul className="list-disc pl-6 space-y-1 my-3">{children}</ul>
+    ),
+    ol: ({ children }) => (
+      <ol className="list-decimal pl-6 space-y-1 my-3">{children}</ol>
+    ),
+    li: ({ children }) => (
+      <li className="text-gray-700 dark:text-gray-300">{children}</li>
+    ),
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
+        {children}
+      </blockquote>
+    ),
+    code: ({ inline, children, className, ...props }) => {
+      if (inline) {
+        return (
+          <code 
+            className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono"
+            {...props}
           >
             {children}
-          </a>
-        ),
-        img: ({ src, alt }) => (
-          <img src={src} alt={alt} className="max-w-full h-auto rounded-md my-2" />
-        ),
-        table: ({ children }) => (
-          <div className="overflow-x-auto my-4">
-            <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
-              {children}
-            </table>
-          </div>
-        ),
-        thead: ({ children }) => (
-          <thead className="bg-gray-100 dark:bg-gray-800">
-            {children}
-          </thead>
-        ),
-        tbody: ({ children }) => (
-          <tbody className="bg-white dark:bg-gray-900">
-            {children}
-          </tbody>
-        ),
-        th: ({ children }) => (
-          <th className="p-3 border border-gray-300 dark:border-gray-600 font-semibold text-left">
-            {children}
-          </th>
-        ),
-        td: ({ children }) => (
-          <td className="p-3 border border-gray-300 dark:border-gray-600">
-            {children}
-          </td>
-        ),
-        hr: () => <hr className="my-6 border-gray-300 dark:border-gray-600" />,
-        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-        em: ({ children }) => <em className="italic">{children}</em>,
-      }}
-    >
-      {content}
-    </ReactMarkdown>
+          </code>
+        );
+      }
+      return (
+        <code className={`${className || ''} text-sm`} {...props}>
+          {children}
+        </code>
+      );
+    },
+    pre: ({ children }) => (
+      <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4 border">
+        {children}
+      </pre>
+    ),
+    a: ({ href, children }) => (
+      <a 
+        href={href} 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        className="text-blue-500 hover:text-blue-700 underline"
+      >
+        {children}
+      </a>
+    ),
+    img: ({ src, alt }) => (
+      <img src={src} alt={alt} className="max-w-full h-auto rounded-md my-2" />
+    ),
+    table: ({ children }) => (
+      <div className="overflow-x-auto my-4">
+        <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ children }) => (
+      <thead className="bg-gray-100 dark:bg-gray-800">
+        {children}
+      </thead>
+    ),
+    tbody: ({ children }) => (
+      <tbody className="bg-white dark:bg-gray-900">
+        {children}
+      </tbody>
+    ),
+    th: ({ children }) => (
+      <th className="p-3 border border-gray-300 dark:border-gray-600 font-semibold text-left">
+        {children}
+      </th>
+    ),
+    td: ({ children }) => (
+      <td className="p-3 border border-gray-300 dark:border-gray-600">
+        {children}
+      </td>
+    ),
+    hr: () => <hr className="my-6 border-gray-300 dark:border-gray-600" />,
+    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+    em: ({ children }) => <em className="italic">{children}</em>,
+  };
+
+  return (
+    <div className="markdown-content">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 };
 
