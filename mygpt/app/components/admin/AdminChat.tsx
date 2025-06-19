@@ -659,8 +659,16 @@ const AdminChat: React.FC = () => {
                           )}
                         </>
                       ) : (
-                        <div className="markdown-content">
-                          {renderMarkdownSafely(message.content)}
+                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                          {message.isError ? (
+                            <div className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                              {message.content}
+                            </div>
+                          ) : (
+                            <div className="whitespace-pre-wrap break-words">
+                              {renderMarkdownSafely(message.content)}
+                            </div>
+                          )}
                         </div>
                       )}
                       <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>
@@ -673,15 +681,10 @@ const AdminChat: React.FC = () => {
                 {streamingMessage && (
                   <div className="flex justify-start">
                     <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none ${streamingMessage.isProgress ? 'progress-message' : ''}`}>
-                      <div className="markdown-content">
-                        {renderMarkdownSafely(streamingMessage.content)}
-                        {streamingMessage.isStreaming && (
-                          <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                          </div>
-                        )}
+                      <div className="prose prose-sm max-w-none dark:prose-invert">
+                        <div className="whitespace-pre-wrap break-words">
+                          {renderMarkdownSafely(streamingMessage.content)}
+                        </div>
                       </div>
                       <div className="text-xs mt-2 text-right text-gray-400/80">
                         {streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
