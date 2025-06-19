@@ -206,7 +206,7 @@ function parseInline(text: string): React.ReactNode {
             newParts.push(pattern.render(match[1], match[2]));
           } else {
             // Other patterns
-            newParts.push(pattern.render(match[1]));
+            newParts.push(pattern.render(match[1], match[2] || ''));
           }
           
           lastIndex = match.index + match[0].length;
