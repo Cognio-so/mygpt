@@ -318,7 +318,7 @@ const TeamMemberCard = React.memo(({
               const gpt = availableGpts.find(g => g.id === gptId);
               return (
                 <Badge key={gptId} variant="secondary" className="text-xs">
-                  {gpt?.name || gptId}
+                  {gpt?.name}
                 </Badge>
               );
             })}

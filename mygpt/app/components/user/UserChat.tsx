@@ -203,10 +203,65 @@ const UserChat: React.FC = () => {
   const conversationLoaded = useRef<boolean>(false);
 
   const conversationId = searchParams.get('conversationId');
+  const loadHistory = searchParams.get('loadHistory') === 'true';
 
+  // Load conversation history
   useEffect(() => {
-    // This effect is not used in the user chat, but kept for consistency with admin
-  }, [conversationId]);
+    const fetchConversationHistory = async () => {
+      // Skip if already loaded or no conversation ID provided
+      if (!loadHistory || !conversationId || conversationLoaded.current) return;
+      
+      try {
+        console.log('🔄 UserChat: Loading conversation history for:', conversationId);
+        setLoading(prev => ({ ...prev, history: true }));
+        
+        // Use browser fetch to get conversation history
+        const response = await fetch(`/api/chat-history?sessionId=${conversationId}`);
+        if (!response.ok) {
+          console.error('❌ UserChat: Failed to fetch conversation history');
+          return;
+        }
+        
+        const data = await response.json() as { messages: any[] };
+        if (data.messages && data.messages.length > 0) {
+          console.log('✅ UserChat: Loaded', data.messages.length, 'messages from history');
+          
+          // Format messages for display
+          const formattedMessages: Message[] = data.messages.map((msg: any) => {
+            let files: FileAttachment[] = [];
+            
+            // Parse user_docs if it exists
+            if (msg.user_docs) {
+              try {
+                files = JSON.parse(msg.user_docs);
+              } catch (parseError) {
+                console.error('❌ UserChat: Error parsing user_docs:', parseError);
+              }
+            }
+            
+            return {
+              id: msg.id,
+              role: msg.role as 'user' | 'assistant' | 'system',
+              content: msg.content,
+              timestamp: new Date(msg.created_at),
+              files: files,
+              isStreaming: false
+            };
+          });
+          
+          setMessages(formattedMessages);
+          conversationLoaded.current = true;
+          console.log('✅ UserChat: Conversation history loaded successfully');
+        }
+      } catch (error) {
+        console.error('❌ UserChat: Error loading conversation history:', error);
+      } finally {
+        setLoading(prev => ({ ...prev, history: false }));
+      }
+    };
+    
+    fetchConversationHistory();
+  }, [loadHistory, conversationId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -337,6 +392,13 @@ const UserChat: React.FC = () => {
               if (data.type === 'content' && data.data) {
                 currentStreamingMessage.content += data.data;
                 setStreamingMessage({ ...currentStreamingMessage });
+              } else if (data.type === 'conversation_id' && data.id) {
+                // Update URL with new conversation ID for new conversations
+                if (!conversationId) {
+                  const newUrl = new URL(window.location.href);
+                  newUrl.searchParams.set('conversationId', data.id);
+                  window.history.replaceState({}, '', newUrl.toString());
+                }
               } else if (data.type === 'done') {
                 currentStreamingMessage.isStreaming = false;
                 setMessages(prev => [...prev, currentStreamingMessage]);
@@ -470,7 +532,12 @@ const UserChat: React.FC = () => {
         </div>
         <div className="flex-1 overflow-y-auto p-4 flex flex-col bg-white dark:bg-black hide-scrollbar">
           <div className="w-full max-w-3xl mx-auto flex-1 flex flex-col space-y-4 pb-4">
-            {loading.history ? <div className="flex-1 flex flex-col items-center justify-center p-10"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div><span className="mt-4 text-sm">Loading...</span></div> : messages.length === 0 && !streamingMessage ? (
+            {loading.history ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-10">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+                <span className="mt-4 text-sm">Loading conversation history...</span>
+              </div>
+            ) : messages.length === 0 && !streamingMessage ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
                 {gptData ? (<>
                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mb-4 overflow-hidden">

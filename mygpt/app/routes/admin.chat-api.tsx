@@ -267,13 +267,31 @@ export async function action({ request, context }: ActionFunctionArgs) {
               // Make sure every chunk is properly formatted for SSE
               const text = decoder.decode(value, { stream: true });
               
-              // Process and ensure proper SSE format
-              const chunks = text.split('\n');
-              for (const chunk of chunks) {
-                if (chunk.trim()) {
-                  if (chunk.startsWith('data: ')) {
+              // Process and ensure proper SSE format with proper buffering
+              let textBuffer = '';
+              textBuffer += text;
+
+              // Split by double newlines to preserve SSE message boundaries
+              const sseMessages = textBuffer.split('\n\n');
+              // Keep the last incomplete message in buffer
+              textBuffer = sseMessages.pop() || '';
+
+              for (const sseMessage of sseMessages) {
+                if (sseMessage.trim()) {
+                  const lines = sseMessage.split('\n');
+                  let dataLine = '';
+                  
+                  // Find the data line(s) in this SSE message
+                  for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                      dataLine = line.slice(6); // Remove 'data: ' prefix
+                      break;
+                    }
+                  }
+                  
+                  if (dataLine) {
                     try {
-                      const jsonData = JSON.parse(chunk.slice(5));
+                      const jsonData = JSON.parse(dataLine);
                       
                       // Collect assistant response for database storage
                       if (jsonData.type === 'content' && jsonData.data) {
@@ -294,13 +312,14 @@ export async function action({ request, context }: ActionFunctionArgs) {
                           console.log("✅ AdminChat API: Assistant response saved successfully");
                         }
                       }
+                      
+                      // Forward the properly formatted SSE message
+                      await writer.write(encoder.encode(`data: ${dataLine}\n\n`));
                     } catch (e) {
-                      // Continue even if JSON parsing fails
+                      console.warn('⚠️ AdminChat API: Error parsing SSE JSON:', e, 'Data:', dataLine);
+                      // Forward the message anyway in case it's not JSON
+                      await writer.write(encoder.encode(`data: ${dataLine}\n\n`));
                     }
-                    
-                    await writer.write(encoder.encode(`${chunk}\n\n`));
-                  } else {
-                    await writer.write(encoder.encode(`data: ${chunk}\n\n`));
                   }
                 }
               }

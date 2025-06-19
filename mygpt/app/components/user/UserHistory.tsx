@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
-import { FiSearch, FiMessageSquare, FiClock, FiCalendar, FiTrash2, FiXCircle, FiExternalLink, FiArrowRight, FiSun, FiMoon } from 'react-icons/fi';
+import { FiSearch, FiMessageSquare, FiClock, FiCalendar, FiTrash2, FiXCircle, FiExternalLink, FiArrowRight } from 'react-icons/fi';
 import { IoEllipse, IoPersonCircleOutline, IoSparkles, IoClose } from 'react-icons/io5';
 import { useNavigate, useLoaderData, useActionData } from '@remix-run/react';
 import { useFetcher } from '@remix-run/react';
@@ -322,7 +322,23 @@ const UserHistoryPage: React.FC = () => {
                     aria-label={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
                     title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
                 >
-                    {theme === 'dark' ? <FiSun size={20} /> : <FiMoon size={20} />}
+                    {theme === 'dark' ? (
+                        <svg 
+                            viewBox="0 0 24 24" 
+                            fill="currentColor" 
+                            className="w-5 h-5"
+                        >
+                            <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM21.75 12a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5H21a.75.75 0 0 1 .75.75ZM17.834 18.894a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 1 0-1.061 1.06l1.59 1.591ZM12 21.75a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 1.5 0V21a.75.75 0 0 1-.75.75ZM5.106 17.834a.75.75 0 0 0 1.06 1.06l1.591-1.59a.75.75 0 1 0-1.06-1.061l-1.591 1.59ZM2.25 12a.75.75 0 0 1 .75-.75h2.25a.75.75 0 0 1 0 1.5H3a.75.75 0 0 1-.75-.75ZM6.166 5.106a.75.75 0 0 0-1.06 1.06l1.59 1.591a.75.75 0 0 0 1.061-1.06l-1.59-1.591Z" />
+                        </svg>
+                    ) : (
+                        <svg 
+                            viewBox="0 0 24 24" 
+                            fill="currentColor" 
+                            className="w-5 h-5"
+                        >
+                            <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-8.313-12.454z" />
+                        </svg>
+                    )}
                 </button>
             </div>
 
