@@ -569,7 +569,62 @@ const UserChat: React.FC = () => {
                       <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
                   </div>))}
-                {streamingMessage && (<div className="flex justify-start"><div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none`}><div className="markdown-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingMessage.content}</ReactMarkdown>{streamingMessage.isStreaming && (<div className="typing-animation mt-2 inline-flex items-center text-gray-400"><span></span><span></span><span></span></div>)}</div><div className="text-xs mt-2 text-right text-gray-400/80">{streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div></div>)}
+                {streamingMessage && (
+                  <div className="flex justify-start">
+                    <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none`}>
+                      <div className="markdown-content">
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            h1: ({ node, ...props }) => <h1 className="text-xl font-bold my-3" {...props} />,
+                            h2: ({ node, ...props }) => <h2 className="text-lg font-bold my-2" {...props} />,
+                            h3: ({ node, ...props }) => <h3 className="text-md font-bold my-2" {...props} />,
+                            h4: ({ node, ...props }) => <h4 className="font-bold my-2" {...props} />,
+                            p: ({ node, ...props }) => <p className="my-2" {...props} />,
+                            ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2" {...props} />,
+                            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2" {...props} />,
+                            li: ({ node, ...props }) => <li className="my-1" {...props} />,
+                            a: ({ node, ...props }) => <a className="text-blue-400 hover:underline" {...props} />,
+                            blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic" {...props} />,
+                            code: ({ node, children, ...props }) => {
+                              return true ? (
+                                <code className="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm" {...props}>
+                                  {children}
+                                </code>
+                              ) : (
+                                <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-sm overflow-x-auto" {...props}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                            table: ({ node, ...props }) => (
+                              <div className="overflow-x-auto my-3">
+                                <table className="min-w-full border border-gray-400 dark:border-gray-500" {...props} />
+                              </div>
+                            ),
+                            thead: ({ node, ...props }) => <thead className="bg-gray-300 dark:bg-gray-600" {...props} />,
+                            tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-400 dark:divide-gray-500" {...props} />,
+                            tr: ({ node, ...props }) => <tr className="hover:bg-gray-300 dark:hover:bg-gray-600" {...props} />,
+                            th: ({ node, ...props }) => <th className="px-4 py-2 text-left font-medium" {...props} />,
+                            td: ({ node, ...props }) => <td className="px-4 py-2" {...props} />,
+                          }}
+                        >
+                          {streamingMessage.content}
+                        </ReactMarkdown>
+                        {streamingMessage.isStreaming && (
+                          <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs mt-2 text-right text-gray-400/80">
+                        {streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {loading.message && !streamingMessage && (<div className="flex justify-start items-end space-x-2"><div className="w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none"><div className="typing-animation inline-flex items-center text-gray-400"><span></span><span></span><span></span></div></div></div>)}
                 <div ref={messagesEndRef} />
               </>)}
