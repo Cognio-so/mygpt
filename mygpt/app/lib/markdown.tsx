@@ -1,260 +1,266 @@
 import React from 'react';
 
-// Simple, production-ready markdown renderer optimized for Cloudflare Workers
+// Ultra-simple, bulletproof markdown renderer for Cloudflare Workers
 export const renderMarkdownSafely = (content: string): React.ReactNode => {
   if (!content) return null;
 
   try {
-    // Process the content line by line with better error handling
-    const lines = content.split('\n');
-    const processedLines: React.ReactNode[] = [];
-    let currentIndex = 0;
-    let isInCodeBlock = false;
-    let codeBlockLines: string[] = [];
-    let codeLanguage = '';
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmedLine = line.trim();
-
-      // Handle code blocks
-      if (trimmedLine.startsWith('```')) {
-        if (!isInCodeBlock) {
-          // Start of code block
-          isInCodeBlock = true;
-          codeLanguage = trimmedLine.substring(3).trim();
-          codeBlockLines = [];
-        } else {
-          // End of code block
-          isInCodeBlock = false;
-          processedLines.push(
-            <pre key={`code-${currentIndex++}`} className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4 text-sm">
-              <code className={`language-${codeLanguage}`}>
-                {codeBlockLines.join('\n')}
-              </code>
-            </pre>
-          );
-          codeBlockLines = [];
-          codeLanguage = '';
-        }
-        continue;
-      }
-
-      if (isInCodeBlock) {
-        codeBlockLines.push(line);
-        continue;
-      }
-
-      // Skip empty lines
-      if (!trimmedLine) {
-        continue;
-      }
-
-      // Process different line types
-      const processedLine = processLine(trimmedLine, currentIndex++);
-      if (processedLine) {
-        processedLines.push(processedLine);
-      }
-    }
-
-    return (
-      <div className="markdown-content space-y-2">
-        {processedLines}
-      </div>
-    );
+    return <div className="markdown-wrapper">{parseMarkdown(content)}</div>;
   } catch (error) {
-    console.error('Markdown rendering error:', error);
-    // Fallback to plain text
+    console.error('Markdown parsing error:', error);
+    // Fallback to simple text formatting
     return (
-      <div className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+      <div className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
         {content}
       </div>
     );
   }
 };
 
-// Process individual lines
-const processLine = (line: string, index: number): React.ReactNode => {
-  // Headers
-  if (line.startsWith('#')) {
-    const headerLevel = (line.match(/^#+/) || [''])[0].length;
-    const headerText = line.replace(/^#+\s*/, '');
-    const processedText = processInlineText(headerText);
+function parseMarkdown(text: string): React.ReactNode[] {
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let key = 0;
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
     
-    const headerClasses = {
-      1: "text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white",
-      2: "text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white", 
-      3: "text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white",
-      4: "text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white",
-      5: "text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white",
-      6: "text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white"
-    };
+    if (!line) {
+      i++;
+      continue;
+    }
+
+    // Code blocks
+    if (line.startsWith('```')) {
+      const codeLines: string[] = [];
+      const language = line.slice(3).trim();
+      i++;
+      
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      
+      elements.push(
+        <pre key={key++} className="bg-gray-900 text-gray-100 p-4 rounded-lg my-4 overflow-x-auto">
+          <code className="text-sm font-mono whitespace-pre">
+            {codeLines.join('\n')}
+          </code>
+        </pre>
+      );
+      i++;
+      continue;
+    }
+
+    // Headers
+    if (line.startsWith('#')) {
+      const headerMatch = line.match(/^(#{1,6})\s*(.*)$/);
+      if (headerMatch) {
+        const level = headerMatch[1].length;
+        const text = headerMatch[2];
+        const HeaderTag = `h${level}` as keyof JSX.IntrinsicElements;
+        const sizes = ['text-3xl', 'text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
+        
+        elements.push(
+          <HeaderTag 
+            key={key++} 
+            className={`${sizes[level - 1] || sizes[5]} font-bold mt-6 mb-4 text-gray-900 dark:text-white`}
+          >
+            {parseInline(text)}
+          </HeaderTag>
+        );
+        i++;
+        continue;
+      }
+    }
+
+    // Lists
+    const bulletMatch = line.match(/^[\*\-\+]\s+(.*)$/);
+    const numberMatch = line.match(/^\d+\.\s+(.*)$/);
     
-    const HeaderComponent = `h${Math.min(headerLevel, 6)}` as keyof JSX.IntrinsicElements;
-    const className = headerClasses[headerLevel as keyof typeof headerClasses] || headerClasses[6];
-    
-    return React.createElement(HeaderComponent, { 
-      key: `header-${index}`, 
-      className 
-    }, processedText);
-  }
+    if (bulletMatch || numberMatch) {
+      const listItems: string[] = [];
+      const isBullet = !!bulletMatch;
+      
+      // Collect all consecutive list items
+      while (i < lines.length) {
+        const currentLine = lines[i].trim();
+        const currentBullet = currentLine.match(/^[\*\-\+]\s+(.*)$/);
+        const currentNumber = currentLine.match(/^\d+\.\s+(.*)$/);
+        
+        if ((isBullet && currentBullet) || (!isBullet && currentNumber)) {
+          listItems.push((currentBullet || currentNumber)![1]);
+          i++;
+        } else if (!currentLine) {
+          i++;
+          break;
+        } else {
+          break;
+        }
+      }
+      
+      const ListTag = isBullet ? 'ul' : 'ol';
+      const listClass = isBullet ? 'list-disc' : 'list-decimal';
+      
+      elements.push(
+        <ListTag key={key++} className={`${listClass} pl-6 my-4 space-y-2`}>
+          {listItems.map((item, idx) => (
+            <li key={idx} className="text-gray-700 dark:text-gray-300">
+              {parseInline(item)}
+            </li>
+          ))}
+        </ListTag>
+      );
+      continue;
+    }
 
-  // Unordered lists
-  if (line.match(/^[\*\-\+]\s/)) {
-    const content = line.substring(2).trim();
-    return (
-      <li key={`li-${index}`} className="ml-6 text-gray-700 dark:text-gray-300 list-disc">
-        {processInlineText(content)}
-      </li>
+    // Blockquotes
+    if (line.startsWith('>')) {
+      const quoteContent = line.slice(1).trim();
+      elements.push(
+        <blockquote 
+          key={key++} 
+          className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic text-gray-600 dark:text-gray-400"
+        >
+          {parseInline(quoteContent)}
+        </blockquote>
+      );
+      i++;
+      continue;
+    }
+
+    // Horizontal rules
+    if (line.match(/^[-*_]{3,}$/)) {
+      elements.push(
+        <hr key={key++} className="my-6 border-gray-300 dark:border-gray-600" />
+      );
+      i++;
+      continue;
+    }
+
+    // Regular paragraphs
+    elements.push(
+      <p key={key++} className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">
+        {parseInline(line)}
+      </p>
     );
+    i++;
   }
 
-  // Ordered lists
-  if (line.match(/^\d+\.\s/)) {
-    const content = line.replace(/^\d+\.\s/, '');
-    return (
-      <li key={`oli-${index}`} className="ml-6 text-gray-700 dark:text-gray-300 list-decimal">
-        {processInlineText(content)}
-      </li>
-    );
-  }
+  return elements;
+}
 
-  // Blockquotes
-  if (line.startsWith('>')) {
-    const content = line.substring(1).trim();
-    return (
-      <blockquote key={`quote-${index}`} className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic text-gray-600 dark:text-gray-400">
-        {processInlineText(content)}
-      </blockquote>
-    );
-  }
-
-  // Horizontal rules
-  if (line.match(/^(---+|___+|\*\*\*+)$/)) {
-    return (
-      <hr key={`hr-${index}`} className="my-6 border-gray-300 dark:border-gray-600" />
-    );
-  }
-
-  // Regular paragraphs
-  return (
-    <p key={`p-${index}`} className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">
-      {processInlineText(line)}
-    </p>
-  );
-};
-
-// Optimized inline text processing
-const processInlineText = (text: string): React.ReactNode => {
+function parseInline(text: string): React.ReactNode {
   if (!text) return text;
 
-  // Simple regex patterns that work reliably in Workers
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  // Process patterns one by one to avoid conflicts
   const patterns = [
-    { regex: /\*\*([^*]+)\*\*/g, component: 'strong', className: 'font-bold' },
-    { regex: /\*([^*]+)\*/g, component: 'em', className: 'italic' },
-    { regex: /`([^`]+)`/g, component: 'code', className: 'bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono' },
-    { regex: /\[([^\]]+)\]\(([^)]+)\)/g, component: 'link', className: 'text-blue-500 hover:text-blue-700 underline' }
+    // Bold (** or __)
+    { regex: /\*\*([^*]+)\*\*/g, render: (match: string) => <strong key={key++} className="font-bold">{match}</strong> },
+    { regex: /__([^_]+)__/g, render: (match: string) => <strong key={key++} className="font-bold">{match}</strong> },
+    
+    // Italic (* or _)
+    { regex: /\*([^*]+)\*/g, render: (match: string) => <em key={key++} className="italic">{match}</em> },
+    { regex: /_([^_]+)_/g, render: (match: string) => <em key={key++} className="italic">{match}</em> },
+    
+    // Inline code
+    { regex: /`([^`]+)`/g, render: (match: string) => (
+      <code key={key++} className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono">
+        {match}
+      </code>
+    )},
+    
+    // Links
+    { regex: /\[([^\]]+)\]\(([^)]+)\)/g, render: (text: string, url: string) => (
+      <a key={key++} href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 underline">
+        {text}
+      </a>
+    )}
   ];
 
-  let result: React.ReactNode = text;
-  let keyCounter = 0;
-
-  patterns.forEach(pattern => {
-    if (typeof result === 'string') {
-      const parts: React.ReactNode[] = [];
-      let lastIndex = 0;
-      let match;
-
-      while ((match = pattern.regex.exec(result)) !== null) {
-        // Add text before match
-        if (match.index > lastIndex) {
-          parts.push(result.substring(lastIndex, match.index));
+  // Simple sequential processing
+  for (const pattern of patterns) {
+    const newParts: React.ReactNode[] = [];
+    
+    for (const part of (parts.length > 0 ? parts : [remaining])) {
+      if (typeof part === 'string') {
+        let lastIndex = 0;
+        let match;
+        
+        pattern.regex.lastIndex = 0; // Reset regex
+        
+        while ((match = pattern.regex.exec(part)) !== null) {
+          // Add text before match
+          if (match.index > lastIndex) {
+            newParts.push(part.substring(lastIndex, match.index));
+          }
+          
+          // Add formatted element
+          if (pattern.regex.source.includes('\\[')) {
+            // Link pattern
+            newParts.push(pattern.render(match[1], match[2]));
+          } else {
+            // Other patterns
+            newParts.push(pattern.render(match[1]));
+          }
+          
+          lastIndex = match.index + match[0].length;
         }
-
-        // Add formatted element
-        if (pattern.component === 'link') {
-          parts.push(
-            <a 
-              key={`link-${keyCounter++}`}
-              href={match[2]} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className={pattern.className}
-            >
-              {match[1]}
-            </a>
-          );
-        } else {
-          parts.push(
-            React.createElement(
-              pattern.component === 'strong' ? 'strong' : 
-              pattern.component === 'em' ? 'em' : 'code',
-              { 
-                key: `${pattern.component}-${keyCounter++}`, 
-                className: pattern.className 
-              },
-              match[1]
-            )
-          );
+        
+        // Add remaining text
+        if (lastIndex < part.length) {
+          newParts.push(part.substring(lastIndex));
         }
-
-        lastIndex = match.index + match[0].length;
+        
+        pattern.regex.lastIndex = 0; // Reset again
+      } else {
+        newParts.push(part);
       }
-
-      // Add remaining text
-      if (lastIndex < result.length) {
-        parts.push(result.substring(lastIndex));
-      }
-
-      if (parts.length > 0) {
-        result = <>{parts}</>;
-      }
-
-      // Reset regex
-      pattern.regex.lastIndex = 0;
     }
-  });
+    
+    if (newParts.length > 0) {
+      parts.length = 0;
+      parts.push(...newParts);
+    }
+  }
 
-  return result;
-};
+  return parts.length > 1 ? <>{parts}</> : parts[0] || text;
+}
 
-// Simplified styles for production
+// Simple CSS styles
 export const MarkdownStyles = () => (
   <style dangerouslySetInnerHTML={{
     __html: `
-      .markdown-content {
-        line-height: 1.6;
+      .markdown-wrapper {
         word-wrap: break-word;
         overflow-wrap: break-word;
+        line-height: 1.6;
       }
       
-      .markdown-content pre {
+      .markdown-wrapper pre {
         white-space: pre-wrap;
+        overflow-x: auto;
+      }
+      
+      .markdown-wrapper code {
         word-break: break-all;
       }
       
-      .markdown-content code {
-        word-break: break-all;
-      }
-      
-      .markdown-content a {
-        word-break: break-all;
+      .markdown-wrapper a {
+        word-wrap: break-word;
       }
 
-      /* Responsive tables */
-      .markdown-content table {
-        max-width: 100%;
-        overflow-x: auto;
-        display: block;
-        white-space: nowrap;
-      }
-      
       @media (max-width: 768px) {
-        .markdown-content {
+        .markdown-wrapper {
           font-size: 14px;
         }
         
-        .markdown-content pre {
+        .markdown-wrapper pre {
           font-size: 12px;
           padding: 8px;
         }

@@ -277,7 +277,7 @@ const AdminChat: React.FC = () => {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    try {
+      try {
       const chatFormData = new FormData();
       chatFormData.append('intent', 'chat');
       chatFormData.append('message', message);
@@ -659,15 +659,13 @@ const AdminChat: React.FC = () => {
                           )}
                         </>
                       ) : (
-                        <div className="prose prose-sm max-w-none dark:prose-invert">
+                        <div className="flex-1 min-w-0">
                           {message.isError ? (
                             <div className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
                               {message.content}
                             </div>
                           ) : (
-                            <div className="whitespace-pre-wrap break-words">
-                              {renderMarkdownSafely(message.content)}
-                            </div>
+                            renderMarkdownSafely(message.content)
                           )}
                         </div>
                       )}
@@ -681,10 +679,8 @@ const AdminChat: React.FC = () => {
                 {streamingMessage && (
                   <div className="flex justify-start">
                     <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none ${streamingMessage.isProgress ? 'progress-message' : ''}`}>
-                      <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <div className="whitespace-pre-wrap break-words">
-                          {renderMarkdownSafely(streamingMessage.content)}
-                        </div>
+                      <div className="flex-1 min-w-0">
+                        {renderMarkdownSafely(streamingMessage.content)}
                       </div>
                       <div className="text-xs mt-2 text-right text-gray-400/80">
                         {streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -781,7 +777,7 @@ const AdminChat: React.FC = () => {
             onClick={() => setIsProfileOpen(false)}
           />
         )}
-      </div>
+    </div>
     </>
   );
 };
