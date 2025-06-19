@@ -8,6 +8,9 @@ import { BiLogoMeta } from 'react-icons/bi';
 import { TbRouter } from 'react-icons/tb';
 import { useTheme } from '~/context/themeContext';
 import type { FileAttachment } from '~/lib/database.types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 
 // Define interfaces
 interface User {
@@ -56,137 +59,97 @@ interface LoadingState {
 const renderMarkdownSafely = (content: string) => {
   if (!content) return null;
 
-  // Simple and SSR-safe markdown renderer
-  const lines = content.split('\n');
-  const elements: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // Skip empty lines
-    if (line.trim() === '') {
-      i++;
-      continue;
-    }
-
-    // Code blocks
-    if (line.startsWith('```')) {
-      const lang = line.substring(3).trim();
-      const codeLines = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith('```')) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      elements.push(
-        <pre key={`code-${i}-${Math.random()}`} className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4">
-          <code>{codeLines.join('\n')}</code>
-        </pre>
-      );
-      i++;
-      continue;
-    }
-
-    // Headings
-    if (line.startsWith('#')) {
-      const level = line.match(/^#+/)?.[0].length || 1;
-      const text = line.replace(/^#+\s*/, '');
-      const HeadingTag = `h${Math.min(level, 6)}` as keyof JSX.IntrinsicElements;
-      const headingClasses = [
-        "text-2xl font-bold mt-6 mb-4",
-        "text-xl font-bold mt-5 mb-3", 
-        "text-lg font-bold mt-4 mb-3",
-        "text-base font-bold mt-3 mb-2",
-        "text-sm font-bold mt-2 mb-2",
-        "text-xs font-bold mt-2 mb-1"
-      ];
-      
-      elements.push(
-        <HeadingTag key={`heading-${i}-${Math.random()}`} className={headingClasses[level - 1] || headingClasses[5]}>
-          {processSimpleInline(text)}
-        </HeadingTag>
-      );
-      i++;
-      continue;
-    }
-
-    // Lists
-    if (line.match(/^[\*\-\+]\s/) || line.match(/^\d+\.\s/)) {
-      const isOrdered = line.match(/^\d+\.\s/);
-      const listItems = [];
-      
-      while (i < lines.length && (lines[i].match(/^[\*\-\+]\s/) || lines[i].match(/^\d+\.\s/))) {
-        const itemText = lines[i].replace(/^[\*\-\+]\s/, '').replace(/^\d+\.\s/, '');
-        listItems.push(itemText);
-        i++;
-      }
-      
-      const ListTag = isOrdered ? 'ol' : 'ul';
-      const listClass = isOrdered ? 'list-decimal' : 'list-disc';
-      
-      elements.push(
-        <ListTag key={`list-${i}-${Math.random()}`} className={`${listClass} pl-6 space-y-1 my-3`}>
-          {listItems.map((item, idx) => (
-            <li key={`item-${idx}-${Math.random()}`}>
-              {processSimpleInline(item)}
-            </li>
-          ))}
-        </ListTag>
-      );
-      continue;
-    }
-
-    // Blockquotes
-    if (line.startsWith('>')) {
-      const quoteLines = [];
-      while (i < lines.length && lines[i].startsWith('>')) {
-        quoteLines.push(lines[i].substring(1).trim());
-        i++;
-      }
-      elements.push(
-        <blockquote key={`quote-${i}-${Math.random()}`} className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
-          {quoteLines.map((quoteLine, idx) => (
-            <p key={`quote-line-${idx}-${Math.random()}`}>
-              {processSimpleInline(quoteLine)}
-            </p>
-          ))}
-        </blockquote>
-      );
-      continue;
-    }
-
-    // Regular paragraphs
-    elements.push(
-      <p key={`para-${i}-${Math.random()}`} className="my-3 leading-relaxed">
-        {processSimpleInline(line)}
-      </p>
-    );
-    i++;
-  }
-
-  return <div className="markdown-content">{elements}</div>;
-};
-
-// Simple inline processing function
-const processSimpleInline = (text: string): React.ReactNode => {
-  if (!text) return text;
-
-  // Process bold text
-  text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/__(.*?)__/g, '<strong>$1</strong>');
-  
-  // Process italic text
-  text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  text = text.replace(/_(.*?)_/g, '<em>$1</em>');
-  
-  // Process inline code
-  text = text.replace(/`(.*?)`/g, '<code class="bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 text-sm font-mono">$1</code>');
-  
-  // Process links
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">$1</a>');
-
-  return <span dangerouslySetInnerHTML={{ __html: text }} />;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      components={{
+        // Custom components for better styling
+        h1: ({ children }) => <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white">{children}</h3>,
+        h4: ({ children }) => <h4 className="text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white">{children}</h4>,
+        h5: ({ children }) => <h5 className="text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white">{children}</h5>,
+        h6: ({ children }) => <h6 className="text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white">{children}</h6>,
+        p: ({ children }) => <p className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">{children}</p>,
+        ul: ({ children }) => <ul className="list-disc pl-6 space-y-1 my-3">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal pl-6 space-y-1 my-3">{children}</ol>,
+        li: ({ children }) => <li className="text-gray-700 dark:text-gray-300">{children}</li>,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
+            {children}
+          </blockquote>
+        ),
+        code: ({ inline, className, children, ...props }: { inline?: boolean, className?: string, children: React.ReactNode } & React.HTMLProps<HTMLElement>) => {
+          if (inline) {
+            return (
+              <code 
+                className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono" 
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+          return (
+            <code className={`${className} text-sm`} {...props}>
+              {children}
+            </code>
+          );
+        },
+        pre: ({ children }) => (
+          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4 border">
+            {children}
+          </pre>
+        ),
+        a: ({ href, children }) => (
+          <a 
+            href={href} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-blue-500 hover:text-blue-700 underline"
+          >
+            {children}
+          </a>
+        ),
+        img: ({ src, alt }) => (
+          <img src={src} alt={alt} className="max-w-full h-auto rounded-md my-2" />
+        ),
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-4">
+            <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
+              {children}
+            </table>
+          </div>
+        ),
+        thead: ({ children }) => (
+          <thead className="bg-gray-100 dark:bg-gray-800">
+            {children}
+          </thead>
+        ),
+        tbody: ({ children }) => (
+          <tbody className="bg-white dark:bg-gray-900">
+            {children}
+          </tbody>
+        ),
+        th: ({ children }) => (
+          <th className="p-3 border border-gray-300 dark:border-gray-600 font-semibold text-left">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="p-3 border border-gray-300 dark:border-gray-600">
+            {children}
+          </td>
+        ),
+        hr: () => <hr className="my-6 border-gray-300 dark:border-gray-600" />,
+        strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+        em: ({ children }) => <em className="italic">{children}</em>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
 };
 
 const MarkdownStyles = () => (
@@ -197,53 +160,30 @@ const MarkdownStyles = () => (
           width: 100%;
       }
       
-      .markdown-content h1,
-      .markdown-content h2,
-      .markdown-content h3 {
-          margin-top: 1.5em;
-          margin-bottom: 0.5em;
+      /* Syntax highlighting styles */
+      .hljs {
+          background: #1f2937 !important;
+          color: #f9fafb !important;
       }
       
-      .markdown-content h1:first-child,
-      .markdown-content h2:first-child,
-      .markdown-content h3:first-child {
-          margin-top: 0;
+      .hljs-keyword {
+          color: #8b5cf6 !important;
       }
       
-      .markdown-content code {
-          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      .hljs-string {
+          color: #10b981 !important;
       }
       
-      .markdown-content pre {
-          overflow-x: auto;
-          border-radius: 0.375rem;
+      .hljs-comment {
+          color: #6b7280 !important;
       }
       
-      .markdown-content blockquote {
-          font-style: italic;
-          color: #6b7280;
+      .hljs-number {
+          color: #f59e0b !important;
       }
       
-      .markdown-content a {
-          text-decoration: none;
-      }
-      
-      .markdown-content a:hover {
-          text-decoration: underline;
-      }
-      
-      .markdown-content table {
-          border-collapse: collapse;
-      }
-      
-      .markdown-content img {
-          max-width: 100%;
-          height: auto;
-      }
-      
-      .markdown-content hr {
-          border-top: 1px solid;
-          margin: 1em 0;
+      .hljs-function {
+          color: #3b82f6 !important;
       }
       
       .hide-scrollbar {
