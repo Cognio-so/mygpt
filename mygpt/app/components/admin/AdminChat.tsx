@@ -10,7 +10,6 @@ import { TbRouter } from 'react-icons/tb';
 import { useTheme } from '~/context/themeContext';
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import type { FileAttachment } from '~/lib/database.types';
-import { renderMarkdownSafely, MarkdownStyles } from '~/lib/markdown';
 
 // Define interfaces
 interface User {
@@ -55,6 +54,287 @@ interface LoadingState {
   message: boolean;
   history: boolean;
 }
+
+const renderMarkdownSafely = (content: string) => {
+  if (!content) return null;
+
+  // Split content into lines for processing
+  const lines = content.split('\n');
+  const result: JSX.Element[] = [];
+  let currentIndex = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    // Skip empty lines
+    if (!trimmedLine) {
+      continue;
+    }
+
+    // Code blocks
+    if (trimmedLine.startsWith('```')) {
+      const language = trimmedLine.substring(3).trim();
+      const codeLines: string[] = [];
+      i++; // Move to next line
+      
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      
+      result.push(
+        <pre key={`code-${currentIndex++}`} className="bg-gray-900 text-white p-4 rounded-lg overflow-x-auto my-4 font-mono text-sm">
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+
+    // Headers
+    if (trimmedLine.startsWith('#')) {
+      const headerLevel = trimmedLine.match(/^#+/)?.[0].length || 1;
+      const headerText = trimmedLine.replace(/^#+\s*/, '');
+      const processedText = processInlineMarkdown(headerText);
+      
+      const headerClasses = [
+        "text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white",
+        "text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white",
+        "text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white",
+        "text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white",
+        "text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white",
+        "text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white"
+      ];
+      
+      const HeaderTag = `h${Math.min(headerLevel, 6)}` as keyof JSX.IntrinsicElements;
+      
+      result.push(
+        <HeaderTag key={`header-${currentIndex++}`} className={headerClasses[headerLevel - 1] || headerClasses[5]}>
+          {processedText}
+        </HeaderTag>
+      );
+      continue;
+    }
+
+    // Unordered lists
+    if (trimmedLine.match(/^[\*\-\+]\s/)) {
+      const listItems: string[] = [];
+      
+      while (i < lines.length && lines[i].trim().match(/^[\*\-\+]\s/)) {
+        listItems.push(lines[i].trim().substring(2));
+        i++;
+      }
+      i--; // Adjust for the outer loop increment
+      
+      result.push(
+        <ul key={`ul-${currentIndex++}`} className="list-disc pl-6 space-y-1 my-3">
+          {listItems.map((item, idx) => (
+            <li key={idx} className="text-gray-700 dark:text-gray-300">
+              {processInlineMarkdown(item)}
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered lists
+    if (trimmedLine.match(/^\d+\.\s/)) {
+      const listItems: string[] = [];
+      
+      while (i < lines.length && lines[i].trim().match(/^\d+\.\s/)) {
+        listItems.push(lines[i].trim().replace(/^\d+\.\s/, ''));
+        i++;
+      }
+      i--; // Adjust for the outer loop increment
+      
+      result.push(
+        <ol key={`ol-${currentIndex++}`} className="list-decimal pl-6 space-y-1 my-3">
+          {listItems.map((item, idx) => (
+            <li key={idx} className="text-gray-700 dark:text-gray-300">
+              {processInlineMarkdown(item)}
+            </li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Blockquotes
+    if (trimmedLine.startsWith('>')) {
+      const quoteLines: string[] = [];
+      
+      while (i < lines.length && lines[i].trim().startsWith('>')) {
+        quoteLines.push(lines[i].trim().substring(1).trim());
+        i++;
+      }
+      i--; // Adjust for the outer loop increment
+      
+      result.push(
+        <blockquote key={`quote-${currentIndex++}`} className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
+          {quoteLines.map((quoteLine, idx) => (
+            <p key={idx} className="text-gray-600 dark:text-gray-400">
+              {processInlineMarkdown(quoteLine)}
+            </p>
+          ))}
+        </blockquote>
+      );
+      continue;
+    }
+
+    // Horizontal rules
+    if (trimmedLine.match(/^(---+|___+|\*\*\*+)$/)) {
+      result.push(
+        <hr key={`hr-${currentIndex++}`} className="my-6 border-gray-300 dark:border-gray-600" />
+      );
+      continue;
+    }
+
+    // Regular paragraphs
+    result.push(
+      <p key={`p-${currentIndex++}`} className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">
+        {processInlineMarkdown(trimmedLine)}
+      </p>
+    );
+  }
+
+  return <div className="markdown-content space-y-2">{result}</div>;
+};
+
+// Process inline markdown (bold, italic, code, links)
+const processInlineMarkdown = (text: string): React.ReactNode => {
+  if (!text) return text;
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let keyCounter = 0;
+
+  // Regex for inline elements
+  const inlineRegex = /(\*\*.*?\*\*)|(__.*?__)|(\*.*?\*)|(_.*?_)|(`.*?`)|(\[.*?\]\(.*?\))/g;
+  
+  let match;
+  while ((match = inlineRegex.exec(text)) !== null) {
+    const [fullMatch] = match;
+    const index = match.index;
+
+    // Add text before the match
+    if (index > lastIndex) {
+      parts.push(text.substring(lastIndex, index));
+    }
+
+    // Process the match
+    if (fullMatch.startsWith('**') || fullMatch.startsWith('__')) {
+      // Bold
+      parts.push(
+        <strong key={`bold-${keyCounter++}`} className="font-bold">
+          {fullMatch.slice(2, -2)}
+        </strong>
+      );
+    } else if (fullMatch.startsWith('*') || fullMatch.startsWith('_')) {
+      // Italic
+      parts.push(
+        <em key={`italic-${keyCounter++}`} className="italic">
+          {fullMatch.slice(1, -1)}
+        </em>
+      );
+    } else if (fullMatch.startsWith('`')) {
+      // Inline code
+      parts.push(
+        <code key={`code-${keyCounter++}`} className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono">
+          {fullMatch.slice(1, -1)}
+        </code>
+      );
+    } else if (fullMatch.startsWith('[')) {
+      // Links
+      const linkMatch = fullMatch.match(/\[(.*?)\]\((.*?)\)/);
+      if (linkMatch) {
+        const [, linkText, url] = linkMatch;
+        parts.push(
+          <a 
+            key={`link-${keyCounter++}`}
+            href={url} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-blue-500 hover:text-blue-700 underline"
+          >
+            {linkText}
+          </a>
+        );
+      }
+    }
+
+    lastIndex = index + fullMatch.length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+
+  return parts.length > 1 ? <>{parts}</> : parts[0] || text;
+};
+
+const MarkdownStyles = () => (
+  <style dangerouslySetInnerHTML={{
+    __html: `
+      .markdown-content {
+          line-height: 1.6;
+          width: 100%;
+      }
+      
+      .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      
+      .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+
+      .progress-message {
+          border-left: 3px solid #3498db;
+          padding-left: 10px;
+          color: #555;
+          background-color: rgba(52, 152, 219, 0.05);
+      }
+
+      .progress-item {
+          animation: fadeIn 0.5s ease-in-out;
+      }
+
+      @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-5px); }
+          to { opacity: 1; transform: translateY(0); }
+      }
+
+      .typing-animation span {
+          width: 5px;
+          height: 5px;
+          background-color: currentColor;
+          border-radius: 50%;
+          display: inline-block;
+          margin: 0 1px;
+          animation: typing 1.3s infinite ease-in-out;
+      }
+
+      .typing-animation span:nth-child(1) {
+          animation-delay: 0s;
+      }
+
+      .typing-animation span:nth-child(2) {
+          animation-delay: 0.2s;
+      }
+
+      .typing-animation span:nth-child(3) {
+          animation-delay: 0.4s;
+      }
+
+      @keyframes typing {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-5px); }
+      }
+  `}} />
+);
 
 const modelIcons: { [key: string]: JSX.Element } = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
@@ -123,6 +403,7 @@ const AdminChat: React.FC = () => {
       try {
         setLoading(prev => ({ ...prev, history: true }));
         
+        
         // Use browser fetch instead of getSupabaseClient since we're in a component
         const response = await fetch(`/api/chat-history?sessionId=${conversationId}`);
         if (!response.ok) {
@@ -178,6 +459,8 @@ const AdminChat: React.FC = () => {
   }, [messages, streamingMessage]);
 
   const handleChatSubmit = async (message: string, files?: FileObject[]) => {
+   
+
     if (!message.trim() && (!files || files.length === 0)) {
       return;
     }
@@ -185,6 +468,7 @@ const AdminChat: React.FC = () => {
     // Upload files to Python backend first if any
     let uploadedFileUrls: FileAttachment[] = [];
     const allFiles = [...(files || []), ...uploadedFiles];
+    
     
     if (allFiles.length > 0) {
       setLoading(prev => ({ ...prev, message: true }));
@@ -220,6 +504,7 @@ const AdminChat: React.FC = () => {
         const stopProgress = simulateProgress();
         
         // Upload files via Remix API route (which forwards to Python backend)
+        
         const uploadResponse = await fetch('/api/upload-documents', {
           method: 'POST',
           body: formData,
@@ -227,6 +512,8 @@ const AdminChat: React.FC = () => {
         
         stopProgress();
         setUploadProgress(100);
+        
+        
         
         if (uploadResponse.ok) {
           const uploadResult = await uploadResponse.json() as { upload_results?: { filename: string; stored_url_or_key: string; status: string }[] };
@@ -241,6 +528,7 @@ const AdminChat: React.FC = () => {
                 type: 'application/octet-stream'
               }));
           }
+          
         } else {
           const errorData = await uploadResponse.json();
           console.error("❌ AdminChat: Upload failed:", errorData);
@@ -263,6 +551,7 @@ const AdminChat: React.FC = () => {
       timestamp: new Date(),
       files: uploadedFileUrls
     };
+
 
     setMessages(prev => [...prev, newUserMessage]);
     setUploadedFiles([]);
@@ -287,18 +576,20 @@ const AdminChat: React.FC = () => {
       chatFormData.append('webSearch', webSearchEnabled.toString());
       
       const filesJsonString = JSON.stringify(uploadedFileUrls);
+      
       chatFormData.append('files', filesJsonString);
       
       // Add conversation ID if we're continuing an existing conversation
       if (conversationId) {
         chatFormData.append('conversationId', conversationId);
+        
       }
-
       const response = await fetch('/admin/chat-api', {
         method: 'POST',
         body: chatFormData,
         signal: abortController.signal
       });
+
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -336,12 +627,14 @@ const AdminChat: React.FC = () => {
       setStreamingMessage(currentStreamingMessage);
       setLoading(prev => ({ ...prev, message: false }));
 
+
       // Process the stream
       try {
         while (true) {
           const { done, value } = await reader.read();
           
           if (done) {
+             
             if (buffer) {
               processChunk(buffer);
             }
@@ -366,6 +659,7 @@ const AdminChat: React.FC = () => {
 
       // Finalize the message if needed
       if (currentStreamingMessage.content && currentStreamingMessage.isStreaming) {
+       
         currentStreamingMessage.isStreaming = false;
         setStreamingMessage(null);
         setMessages(prev => [...prev, currentStreamingMessage]);
@@ -395,6 +689,7 @@ const AdminChat: React.FC = () => {
             };
             setStreamingMessage({ ...currentStreamingMessage });
           } else if (data.type === 'end' || data.type === 'done') {
+           
             currentStreamingMessage = {
               ...currentStreamingMessage,
               isStreaming: false
@@ -429,6 +724,7 @@ const AdminChat: React.FC = () => {
   };
 
   const handleFileUpload = (files: FileObject[]) => {
+    
     setUploadedFiles(prev => [...prev, ...files]);
   };
 
@@ -659,14 +955,8 @@ const AdminChat: React.FC = () => {
                           )}
                         </>
                       ) : (
-                        <div className="flex-1 min-w-0">
-                          {message.isError ? (
-                            <div className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
-                              {message.content}
-                            </div>
-                          ) : (
-                            renderMarkdownSafely(message.content)
-                          )}
+                        <div className="markdown-content">
+                          {renderMarkdownSafely(message.content)}
                         </div>
                       )}
                       <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>
@@ -679,8 +969,15 @@ const AdminChat: React.FC = () => {
                 {streamingMessage && (
                   <div className="flex justify-start">
                     <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none ${streamingMessage.isProgress ? 'progress-message' : ''}`}>
-                      <div className="flex-1 min-w-0">
+                      <div className="markdown-content">
                         {renderMarkdownSafely(streamingMessage.content)}
+                        {streamingMessage.isStreaming && (
+                          <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-xs mt-2 text-right text-gray-400/80">
                         {streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

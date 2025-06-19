@@ -8,7 +8,10 @@ import { BiLogoMeta } from 'react-icons/bi';
 import { TbRouter } from 'react-icons/tb';
 import { useTheme } from '~/context/themeContext';
 import type { FileAttachment } from '~/lib/database.types';
-import { renderMarkdownSafely, MarkdownStyles } from '~/lib/markdown';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import type { Components } from 'react-markdown';
 
 // Define interfaces
 interface User {
@@ -53,6 +56,238 @@ interface LoadingState {
   message: boolean;
   history: boolean;
 }
+
+// Custom components for react-markdown with proper Cloudflare Workers support
+const markdownComponents: Components = {
+  code: ({ node, inline, className, children, ...props }) => {
+    const match = /language-(\w+)/.exec(className || '');
+    const language = match ? match[1] : '';
+    
+    if (inline) {
+      return (
+        <code
+          className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono"
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+    
+    return (
+      <pre className="bg-gray-900 text-white p-4 rounded-lg overflow-x-auto my-4 font-mono text-sm">
+        <code className={className} {...props}>
+          {children}
+        </code>
+      </pre>
+    );
+  },
+  h1: ({ children }) => (
+    <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white">
+      {children}
+    </h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white">
+      {children}
+    </h4>
+  ),
+  h5: ({ children }) => (
+    <h5 className="text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white">
+      {children}
+    </h5>
+  ),
+  h6: ({ children }) => (
+    <h6 className="text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white">
+      {children}
+    </h6>
+  ),
+  ul: ({ children }) => (
+    <ul className="list-disc pl-6 space-y-1 my-3">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-decimal pl-6 space-y-1 my-3">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => (
+    <li className="text-gray-700 dark:text-gray-300">
+      {children}
+    </li>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
+      <div className="text-gray-600 dark:text-gray-400">
+        {children}
+      </div>
+    </blockquote>
+  ),
+  hr: () => (
+    <hr className="my-6 border-gray-300 dark:border-gray-600" />
+  ),
+  p: ({ children }) => (
+    <p className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">
+      {children}
+    </p>
+  ),
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-500 hover:text-blue-700 underline"
+    >
+      {children}
+    </a>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-bold">
+      {children}
+    </strong>
+  ),
+  em: ({ children }) => (
+    <em className="italic">
+      {children}
+    </em>
+  ),
+  table: ({ children }) => (
+    <div className="overflow-x-auto my-4">
+      <table className="min-w-full border border-gray-300 dark:border-gray-600">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-gray-50 dark:bg-gray-800">
+      {children}
+    </thead>
+  ),
+  tbody: ({ children }) => (
+    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+      {children}
+    </tbody>
+  ),
+  tr: ({ children }) => (
+    <tr className="hover:bg-gray-50 dark:hover:bg-gray-800">
+      {children}
+    </tr>
+  ),
+  th: ({ children }) => (
+    <th className="px-4 py-2 text-left font-medium text-gray-900 dark:text-white border-b border-gray-300 dark:border-gray-600">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="px-4 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
+      {children}
+    </td>
+  )
+};
+
+// Replace the custom renderMarkdownSafely function with this
+const renderMarkdownContent = (content: string) => {
+  if (!content) return null;
+
+  return (
+    <ReactMarkdown
+      components={markdownComponents}
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeHighlight]}
+      className="markdown-content space-y-2"
+    >
+      {content}
+    </ReactMarkdown>
+  );
+};
+
+const MarkdownStyles = () => (
+  <style dangerouslySetInnerHTML={{
+    __html: `
+      .markdown-content {
+          line-height: 1.6;
+          width: 100%;
+      }
+      
+      .hide-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      
+      .hide-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+
+      .typing-animation span {
+          width: 5px;
+          height: 5px;
+          background-color: currentColor;
+          border-radius: 50%;
+          display: inline-block;
+          margin: 0 1px;
+          animation: typing 1.3s infinite ease-in-out;
+      }
+
+      .typing-animation span:nth-child(1) {
+          animation-delay: 0s;
+      }
+
+      .typing-animation span:nth-child(2) {
+          animation-delay: 0.2s;
+      }
+
+      .typing-animation span:nth-child(3) {
+          animation-delay: 0.4s;
+      }
+
+      @keyframes typing {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-5px); }
+      }
+
+      /* Syntax highlighting styles for rehype-highlight */
+      .hljs {
+          display: block;
+          overflow-x-auto;
+          padding: 0.5em;
+          background: #1e1e1e;
+          color: #dcdcdc;
+      }
+
+      .hljs-keyword,
+      .hljs-selector-tag,
+      .hljs-literal {
+          color: #569cd6;
+      }
+
+      .hljs-string {
+          color: #ce9178;
+      }
+
+      .hljs-comment {
+          color: #6a9955;
+      }
+
+      .hljs-number {
+          color: #b5cea8;
+      }
+
+      .hljs-function {
+          color: #dcdcaa;
+      }
+  `}} />
+);
 
 const modelIcons: { [key: string]: JSX.Element } = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
@@ -443,69 +678,52 @@ const UserChat: React.FC = () => {
               </div>
             ) : messages.length === 0 && !streamingMessage ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
-                {gptData ? (
-                  <>
+                {gptData ? (<>
                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mb-4 overflow-hidden">
                       {gptData.imageUrl ? <img src={gptData.imageUrl} alt={gptData.name} className="w-full h-full object-cover rounded-full" /> : <span className="text-2xl text-white">{gptData.name?.charAt(0) || '?'}</span>}
                     </div>
                     <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">{gptData.name}</h2>
                     <p className="text-gray-500 dark:text-gray-400 max-w-md">{gptData.description}</p>
-                    {gptData.conversationStarter && (
-                      <div onClick={() => handleChatSubmit(gptData.conversationStarter || '')} className="mt-5 max-w-xs p-3 bg-gray-100 dark:bg-gray-800/70 border border-gray-300 dark:border-gray-700/70 rounded-lg text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-600/70 transition-colors">
-                        <p className="text-gray-800 dark:text-white text-sm">{gptData.conversationStarter.length > 40 ? gptData.conversationStarter.substring(0, 40) + '...' : gptData.conversationStarter}</p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
+                    {gptData.conversationStarter && (<div onClick={() => handleChatSubmit(gptData.conversationStarter || '')} className="mt-5 max-w-xs p-3 bg-gray-100 dark:bg-gray-800/70 border border-gray-300 dark:border-gray-700/70 rounded-lg text-left cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-600/70 transition-colors"><p className="text-gray-800 dark:text-white text-sm">{gptData.conversationStarter.length > 40 ? gptData.conversationStarter.substring(0, 40) + '...' : gptData.conversationStarter}</p></div>)}
+                  </>) : (<>
                     <h1 className='text-2xl sm:text-3xl md:text-4xl font-bold mb-2 text-gray-900 dark:text-white'>Welcome to AI Assistant</h1>
                     <span className='text-base sm:text-lg md:text-xl font-medium text-gray-500 dark:text-gray-400 mb-8 block'>How can I assist you today?</span>
-                  </>
-                )}
+                  </>)}
               </div>
-            ) : (
-              <>
+            ) : (<>
                 {messages.map((message) => (
                   <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`${message.role === 'user' ? 'bg-black/10 dark:bg-white/80 text-black font-[16px] dark:text-black rounded-br-none max-w-max ' : 'assistant-message text-black font-[16px] dark:text-white rounded-bl-none w-full max-w-3xl'} rounded-2xl px-4 py-2`}>
                       {message.role === 'user' ? (
                         <>
                           <p className="whitespace-pre-wrap">{message.content}</p>
-                          {message.files && message.files.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {message.files.map((file: any, index: any) => (
-                                <div key={`${file.name}-${index}`} className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit">
+                          {message.files && message.files.length > 0 && (<div className="mt-2 flex flex-wrap gap-2">{message.files.map((file: any, index: any) => (<div key={`${file.name}-${index}`} className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit">
                                   <div className="mr-1.5 text-gray-500 dark:text-gray-400">{getFileIcon(file.name)}</div>
                                   <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">{file.name}</span>
-                                  {file.size && (
-                                    <div className="text-[10px] text-gray-500 ml-1 whitespace-nowrap">{Math.round(file.size / 1024)} KB</div>
-                                  )}
+                                  {file.size && (<div className="text-[10px] text-gray-500 ml-1 whitespace-nowrap">{Math.round(file.size / 1024)} KB</div>)}
                                   <a href={file.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-500 hover:text-blue-600 text-xs" title="Download file">📎</a>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                                </div>))}</div>)}
                         </>
                       ) : (
-                        <div className="flex-1 min-w-0">
-                          {message.isError ? (
-                            <div className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
-                              {message.content}
-                            </div>
-                          ) : (
-                            renderMarkdownSafely(message.content)
-                          )}
+                        <div className="markdown-content">
+                          {renderMarkdownContent(message.content)}
                         </div>
                       )}
                       <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
-                  </div>
-                ))}
+                  </div>))}
                 {streamingMessage && (
                   <div className="flex justify-start">
                     <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none`}>
-                      <div className="flex-1 min-w-0">
-                        {renderMarkdownSafely(streamingMessage.content)}
+                      <div className="markdown-content">
+                        {renderMarkdownContent(streamingMessage.content)}
+                        {streamingMessage.isStreaming && (
+                          <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-xs mt-2 text-right text-gray-400/80">
                         {streamingMessage.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -513,68 +731,17 @@ const UserChat: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {loading.message && !streamingMessage && (
-                  <div className="flex justify-start items-end space-x-2">
-                    <div className="w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none">
-                      <div className="typing-animation inline-flex items-center text-gray-400">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {loading.message && !streamingMessage && (<div className="flex justify-start items-end space-x-2"><div className="w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none"><div className="typing-animation inline-flex items-center text-gray-400"><span></span><span></span><span></span></div></div></div>)}
                 <div ref={messagesEndRef} />
-              </>
-            )}
+              </>)}
           </div>
         </div>
         <div className="flex-shrink-0 w-[95%] max-w-3xl mx-auto">
-          {isUploading && (
-            <div className="mb-2 px-2">
-              <div className="flex items-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                <div className="flex-shrink-0 mr-3">
-                  <div className="w-8 h-8 flex items-center justify-center">
-                    <svg className="animate-spin w-5 h-5 text-blue-500 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                    {uploadedFiles.length === 1
-                      ? `Uploading ${uploadedFiles[0]?.name}`
-                      : `Uploading ${uploadedFiles.length} files`}
-                  </div>
-                  <div className="mt-1 relative h-1.5 w-full bg-blue-100 dark:bg-blue-800/40 rounded-full overflow-hidden">
-                    <div
-                      className="absolute left-0 top-0 h-full bg-blue-500 dark:bg-blue-400 transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          {uploadedFiles.length > 0 && !isUploading && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {uploadedFiles.map((file, index) => (
-                <div key={`${file.name}-${index}`} className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit">
-                  <div className="mr-1.5 text-gray-500 dark:text-gray-400">{getFileIcon(file.name)}</div>
-                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">{file.name}</span>
-                  <button onClick={() => handleRemoveUploadedFile(index)} className="ml-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-0.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors" aria-label="Remove file">
-                    <IoClose size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          {isUploading && (<div className="mb-2 px-2"><div className="flex items-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30"><div className="flex-shrink-0 mr-3"><div className="w-8 h-8 flex items-center justify-center"><svg className="animate-spin w-5 h-5 text-blue-500 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div></div><div className="flex-1 min-w-0"><div className="text-sm font-medium text-blue-700 dark:text-blue-300">{uploadedFiles.length === 1 ? `Uploading ${uploadedFiles[0]?.name}` : `Uploading ${uploadedFiles.length} files`}</div><div className="mt-1 relative h-1.5 w-full bg-blue-100 dark:bg-blue-800/40 rounded-full overflow-hidden"><div className="absolute left-0 top-0 h-full bg-blue-500 dark:bg-blue-400 transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div></div></div></div></div>)}
+          {uploadedFiles.length > 0 && !isUploading && (<div className="mb-2 flex flex-wrap gap-2">{uploadedFiles.map((file, index) => (<div key={`${file.name}-${index}`} className="flex items-center py-1 px-2 bg-gray-50 dark:bg-gray-800/50 rounded-md border border-gray-200 dark:border-gray-700/50 max-w-fit"><div className="mr-1.5 text-gray-500 dark:text-gray-400">{getFileIcon(file.name)}</div><span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[140px]">{file.name}</span><button onClick={() => handleRemoveUploadedFile(index)} className="ml-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-0.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-colors" aria-label="Remove file"><IoClose size={14} /></button></div>))}</div>)}
           <UserMessageInput onSubmit={handleChatSubmit} onFileUpload={handleFileUpload} isLoading={loading.message} currentGptName={gptData?.name} webSearchEnabled={webSearchEnabled} setWebSearchEnabled={setWebSearchEnabled} showWebSearchIcon={showWebSearchToggle} />
         </div>
-        {isProfileOpen && (
-          <div className="fixed inset-0 z-20" onClick={() => setIsProfileOpen(false)} />
-        )}
+        {isProfileOpen && (<div className="fixed inset-0 z-20" onClick={() => setIsProfileOpen(false)} />)}
       </div>
     </>
   );

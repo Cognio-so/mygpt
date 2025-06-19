@@ -1,99 +1,111 @@
 import React from 'react';
 import { marked } from 'marked';
+import type { MarkedOptions, Renderer } from 'marked';
 
 // Configure marked for Cloudflare Workers compatibility
-marked.setOptions({
+const markedOptions: MarkedOptions = {
   gfm: true, // GitHub Flavored Markdown
   breaks: true, // Convert line breaks to <br>
-  headerIds: false, // Disable header IDs for security
-  mangle: false, // Don't mangle autolinks
-});
+  extensions: {
+    renderers: {},
+    childTokens: {},
+    inline: [],
+    block: [],
+    startInline: [],
+    startBlock: []
+  } // Add any custom extensions here
+};
 
 // Custom renderer for better styling
-const renderer = new marked.Renderer();
+const renderer: Partial<Renderer> = {
+  // Override code block rendering
+  code({ text, lang }: { text: string; lang?: string }): string {
+    const language = lang || '';
+    return `<pre class="bg-gray-900 text-gray-100 p-4 rounded-lg my-4 overflow-x-auto"><code class="language-${language} text-sm font-mono whitespace-pre">${text}</code></pre>`;
+  },
 
-// Override code block rendering
-renderer.code = function(code: string, language?: string) {
-  const lang = language || '';
-  return `<pre class="bg-gray-900 text-gray-100 p-4 rounded-lg my-4 overflow-x-auto"><code class="language-${lang} text-sm font-mono whitespace-pre">${code}</code></pre>`;
+  // Override inline code rendering
+  codespan({ text }: { text: string }): string {
+    return `<code class="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono">${text}</code>`;
+  },
+
+  // Override header rendering
+  heading({ tokens, depth }: { tokens: any[]; depth: number }): string {
+    const sizes = ['text-3xl', 'text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
+    const size = sizes[depth - 1] || sizes[5];
+    // Convert tokens to text (simple implementation)
+    const text = tokens.map(token => token.raw || token.text || '').join('');
+    return `<h${depth} class="${size} font-bold mt-6 mb-4 text-gray-900 dark:text-white">${text}</h${depth}>`;
+  },
+
+  // Override paragraph rendering
+  paragraph({ tokens }: { tokens: any[] }): string {
+    // Convert tokens to text (simple implementation)
+    const text = tokens.map(token => token.raw || token.text || '').join('');
+    return `<p class="my-3 leading-relaxed text-gray-700 dark:text-gray-300">${text}</p>`;
+  },
+
+  // Override list rendering
+  list({ items, ordered }: { items: any[]; ordered: boolean }): string {
+    const tag = ordered ? 'ol' : 'ul';
+    const listClass = ordered ? 'list-decimal' : 'list-disc';
+    const body = items.map(item => this.listitem && this.listitem(item) || item.raw || '').join('');
+    return `<${tag} class="${listClass} pl-6 my-4 space-y-2">${body}</${tag}>`;
+  },
+
+  listitem({ tokens }: { tokens: any[] }): string {
+    const text = tokens.map(token => token.raw || token.text || '').join('');
+    return `<li class="text-gray-700 dark:text-gray-300">${text}</li>`;
+  },
+
+  // Override blockquote rendering
+  blockquote({ tokens }: { tokens: any[] }): string {
+    const text = tokens.map(token => token.raw || token.text || '').join('');
+    return `<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic text-gray-600 dark:text-gray-400">${text}</blockquote>`;
+  },
+
+  // Override link rendering
+  link({ href, title, tokens }: { href: string; title?: string | null | undefined; tokens: any[] }): string {
+    const titleAttr = title ? ` title="${title}"` : '';
+    const text = tokens.map(token => token.raw || token.text || '').join('');
+    return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-700 underline">${text}</a>`;
+  },
+
+  // Override horizontal rule rendering
+  hr(): string {
+    return '<hr class="my-6 border-gray-300 dark:border-gray-600" />';
+  },
+
+  // Override table rendering
+  table({ header, rows }: { header: any[]; rows: any[][] }): string {
+    const headerContent = header.map(cell => 
+      `<th class="px-4 py-2 text-left font-medium text-gray-900 dark:text-white border-b border-gray-300 dark:border-gray-600">${cell.tokens ? cell.tokens.map((t: any) => t.raw || t.text || '').join('') : cell.text || ''}</th>`
+    ).join('');
+    
+    const bodyContent = rows.map(row => 
+      `<tr class="hover:bg-gray-50 dark:hover:bg-gray-800">${row.map(cell => 
+        `<td class="px-4 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">${cell.tokens ? cell.tokens.map((t: any) => t.raw || t.text || '').join('') : cell.text || ''}</td>`
+      ).join('')}</tr>`
+    ).join('');
+
+    return `<div class="overflow-x-auto my-4">
+      <table class="min-w-full border border-gray-300 dark:border-gray-600">
+        <thead class="bg-gray-50 dark:bg-gray-800"><tr>${headerContent}</tr></thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">${bodyContent}</tbody>
+      </table>
+    </div>`;
+  }
 };
 
-// Override inline code rendering
-renderer.codespan = function(code: string) {
-  return `<code class="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono">${code}</code>`;
-};
-
-// Override header rendering
-renderer.heading = function(text: string, level: number) {
-  const sizes = ['text-3xl', 'text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
-  const size = sizes[level - 1] || sizes[5];
-  return `<h${level} class="${size} font-bold mt-6 mb-4 text-gray-900 dark:text-white">${text}</h${level}>`;
-};
-
-// Override paragraph rendering
-renderer.paragraph = function(text: string) {
-  return `<p class="my-3 leading-relaxed text-gray-700 dark:text-gray-300">${text}</p>`;
-};
-
-// Override list rendering
-renderer.list = function(body: string, ordered?: boolean) {
-  const tag = ordered ? 'ol' : 'ul';
-  const listClass = ordered ? 'list-decimal' : 'list-disc';
-  return `<${tag} class="${listClass} pl-6 my-4 space-y-2">${body}</${tag}>`;
-};
-
-renderer.listitem = function(text: string) {
-  return `<li class="text-gray-700 dark:text-gray-300">${text}</li>`;
-};
-
-// Override blockquote rendering
-renderer.blockquote = function(quote: string) {
-  return `<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic text-gray-600 dark:text-gray-400">${quote}</blockquote>`;
-};
-
-// Override link rendering
-renderer.link = function(href: string, title: string | null, text: string) {
-  const titleAttr = title ? ` title="${title}"` : '';
-  return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-700 underline">${text}</a>`;
-};
-
-// Override horizontal rule rendering
-renderer.hr = function() {
-  return '<hr class="my-6 border-gray-300 dark:border-gray-600" />';
-};
-
-// Override table rendering
-renderer.table = function(header: string, body: string) {
-  return `<div class="overflow-x-auto my-4">
-    <table class="min-w-full border border-gray-300 dark:border-gray-600">
-      <thead class="bg-gray-50 dark:bg-gray-800">${header}</thead>
-      <tbody class="divide-y divide-gray-200 dark:divide-gray-700">${body}</tbody>
-    </table>
-  </div>`;
-};
-
-renderer.tablerow = function(content: string) {
-  return `<tr class="hover:bg-gray-50 dark:hover:bg-gray-800">${content}</tr>`;
-};
-
-renderer.tablecell = function(content: string, flags: { header?: boolean; align?: 'center' | 'left' | 'right' | null }) {
-  const tag = flags.header ? 'th' : 'td';
-  const baseClass = flags.header 
-    ? 'px-4 py-2 text-left font-medium text-gray-900 dark:text-white border-b border-gray-300 dark:border-gray-600'
-    : 'px-4 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700';
-  
-  return `<${tag} class="${baseClass}">${content}</${tag}>`;
-};
-
-// Set the custom renderer
-marked.setOptions({ renderer });
+// Configure marked with options and renderer
+marked.use(markedOptions as any);
 
 // Main markdown rendering function
 export const renderMarkdownSafely = (content: string): React.ReactNode => {
   if (!content) return null;
 
   try {
-    // Parse markdown to HTML using marked (works in Cloudflare Workers)
+    // Parse markdown to HTML using marked (synchronous in v15+)
     const htmlContent = marked.parse(content) as string;
     
     // Return JSX with dangerouslySetInnerHTML (safe because we control the renderer)

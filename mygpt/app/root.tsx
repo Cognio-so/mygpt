@@ -15,7 +15,6 @@ import { getOptionalAuth } from "~/lib/auth.server";
 import { useState, useEffect } from "react";
 import { SupabaseProvider } from '~/context/supabaseContext';
 import { ThemeProvider } from '~/context/themeContext';
-import { MarkdownStyles } from '~/lib/markdown';
 
 import "./tailwind.css";
 import AdminLayout from "./components/admin/AdminLayout";   
@@ -111,7 +110,6 @@ export default function App() {
         <meta name="theme-color" content={theme === 'dark' ? '#111827' : '#ffffff'} />
         <Meta />
         <Links />
-        <MarkdownStyles />
         <script
           dangerouslySetInnerHTML={{
             __html: `window.ENV = ${JSON.stringify(ENV)}`,
