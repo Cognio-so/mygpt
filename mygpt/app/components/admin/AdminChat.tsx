@@ -59,6 +59,41 @@ interface LoadingState {
   history: boolean;
 }
 
+const renderMarkdownSafely = (content: string) => {
+  // Basic markdown parsing for critical elements
+  const processedContent = content
+    // Handle code blocks with ```
+    .replace(/```([\s\S]*?)```/g, (_, code) => {
+      return `<pre class="bg-gray-300 dark:bg-gray-800 p-2 rounded my-2 overflow-auto"><code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
+    })
+    // Handle inline code with single backticks
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm">$1</code>')
+    // Handle headings (# Heading)
+    .replace(/^# (.*$)/gm, '<h1 class="text-xl font-bold my-3">$1</h1>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-lg font-bold my-2">$1</h2>')
+    .replace(/^### (.*$)/gm, '<h3 class="text-md font-bold my-2">$1</h3>')
+    // Handle bullet lists
+    .replace(/^\* (.*$)/gm, '<li class="my-1 ml-5 list-disc">$1</li>')
+    .replace(/^- (.*$)/gm, '<li class="my-1 ml-5 list-disc">$1</li>')
+    // Handle numbered lists
+    .replace(/^\d+\. (.*$)/gm, '<li class="my-1 ml-5 list-decimal">$1</li>')
+    // Handle blockquotes
+    .replace(/^> (.*$)/gm, '<blockquote class="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic">$1</blockquote>')
+    // Handle horizontal rule
+    .replace(/^---$/gm, '<hr class="my-3 border-t border-gray-300 dark:border-gray-700">')
+    // Handle links [text](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>')
+    // Handle bold **text**
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // Handle italic *text*
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Handle paragraphs (split by double newlines)
+    .split('\n\n').map(p => p.trim() ? `<p class="my-2">${p}</p>` : '').join('');
+
+  // Return the processed content as dangerously set HTML
+  return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: processedContent }} />;
+};
+
 const MarkdownStyles = () => (
   <style dangerouslySetInnerHTML={{
     __html: `
@@ -790,44 +825,7 @@ const AdminChat: React.FC = () => {
                         </>
                       ) : (
                         <div className="markdown-content">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              h1: ({ node, ...props }) => <h1 className="text-xl font-bold my-3" {...props} />,
-                              h2: ({ node, ...props }) => <h2 className="text-lg font-bold my-2" {...props} />,
-                              h3: ({ node, ...props }) => <h3 className="text-md font-bold my-2" {...props} />,
-                              h4: ({ node, ...props }) => <h4 className="font-bold my-2" {...props} />,
-                              p: ({ node, ...props }) => <p className="my-2" {...props} />,
-                              ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2" {...props} />,
-                              ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2" {...props} />,
-                              li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                              a: ({ node, ...props }) => <a className="text-blue-400 hover:underline" {...props} />,
-                              blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic" {...props} />,
-                              code: ({ node, children, ...props }) => {
-                                return true ? (
-                                  <code className="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm" {...props}>
-                                    {children}
-                                  </code>
-                                ) : (
-                                  <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-sm overflow-x-auto" {...props}>
-                                    {children}
-                                  </code>
-                                );
-                              },
-                              table: ({ node, ...props }) => (
-                                <div className="overflow-x-auto my-3">
-                                  <table className="min-w-full border border-gray-400 dark:border-gray-500" {...props} />
-                                </div>
-                              ),
-                              thead: ({ node, ...props }) => <thead className="bg-gray-300 dark:bg-gray-600" {...props} />,
-                              tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-400 dark:divide-gray-500" {...props} />,
-                              tr: ({ node, ...props }) => <tr className="hover:bg-gray-300 dark:hover:bg-gray-600" {...props} />,
-                              th: ({ node, ...props }) => <th className="px-4 py-2 text-left font-medium" {...props} />,
-                              td: ({ node, ...props }) => <td className="px-4 py-2" {...props} />,
-                            }}
-                          >
-                            {message.content}
-                          </ReactMarkdown>
+                          {renderMarkdownSafely(message.content)}
                         </div>
                       )}
                       <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>
@@ -841,45 +839,7 @@ const AdminChat: React.FC = () => {
                   <div className="flex justify-start">
                     <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none ${streamingMessage.isProgress ? 'progress-message' : ''}`}>
                       <div className="markdown-content">
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            h1: ({ node, ...props }) => <h1 className="text-xl font-bold my-3" {...props} />,
-                            h2: ({ node, ...props }) => <h2 className="text-lg font-bold my-2" {...props} />,
-                            h3: ({ node, ...props }) => <h3 className="text-md font-bold my-2" {...props} />,
-                            h4: ({ node, ...props }) => <h4 className="font-bold my-2" {...props} />,
-                            p: ({ node, ...props }) => <p className="my-2" {...props} />,
-                            ul: ({ node, ...props }) => <ul className="list-disc pl-5 my-2" {...props} />,
-                            ol: ({ node, ...props }) => <ol className="list-decimal pl-5 my-2" {...props} />,
-                            li: ({ node, ...props }) => <li className="my-1" {...props} />,
-                            a: ({ node, ...props }) => <a className="text-blue-400 hover:underline" {...props} />,
-                            blockquote: ({ node, ...props }) => <blockquote className="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic" {...props} />,
-                            code: ({ node, children, ...props }) => {
-                              return true ? (
-                                <code className="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm" {...props}>
-                                  {children}
-                                </code>
-                              ) : (
-                                <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-sm overflow-x-auto" {...props}>
-                                  {children}
-                                </code>
-                              );
-                            },
-                            table: ({ node, ...props }) => (
-                              <div className="overflow-x-auto my-3">
-                                <table className="min-w-full border border-gray-400 dark:border-gray-500" {...props} />
-                              </div>
-                            ),
-                            thead: ({ node, ...props }) => <thead className="bg-gray-300 dark:bg-gray-600" {...props} />,
-                            tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-400 dark:divide-gray-500" {...props} />,
-                            tr: ({ node, ...props }) => <tr className="hover:bg-gray-300 dark:hover:bg-gray-600" {...props} />,
-                            th: ({ node, ...props }) => <th className="px-4 py-2 text-left font-medium" {...props} />,
-                            td: ({ node, ...props }) => <td className="px-4 py-2" {...props} />,
-                          }}
-                        >
-                          {streamingMessage.content}
-                        </ReactMarkdown>
-
+                        {renderMarkdownSafely(streamingMessage.content)}
                         {streamingMessage.isStreaming && (
                           <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
                             <span></span>
