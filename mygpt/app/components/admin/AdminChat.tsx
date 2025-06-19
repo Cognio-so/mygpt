@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLoaderData, useFetcher, useNavigate, useSearchParams } from '@remix-run/react';
 import AdminMessageInput from './AdminMessage';
 import { IoPersonCircleOutline, IoSettingsOutline, IoPersonOutline, IoArrowBack, IoClose, IoAddCircleOutline } from 'react-icons/io5';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { marked } from 'marked';
 import { SiOpenai, SiGooglegemini } from 'react-icons/si';
 import { FaRobot } from 'react-icons/fa6';
 import { BiLogoMeta } from 'react-icons/bi';
@@ -60,38 +59,17 @@ interface LoadingState {
 }
 
 const renderMarkdownSafely = (content: string) => {
-  // Basic markdown parsing for critical elements
-  const processedContent = content
-    // Handle code blocks with ```
-    .replace(/```([\s\S]*?)```/g, (_, code) => {
-      return `<pre class="bg-gray-300 dark:bg-gray-800 p-2 rounded my-2 overflow-auto"><code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
-    })
-    // Handle inline code with single backticks
-    .replace(/`([^`]+)`/g, '<code class="bg-gray-300 dark:bg-gray-600 px-1 py-0.5 rounded text-sm">$1</code>')
-    // Handle headings (# Heading)
-    .replace(/^# (.*$)/gm, '<h1 class="text-xl font-bold my-3">$1</h1>')
-    .replace(/^## (.*$)/gm, '<h2 class="text-lg font-bold my-2">$1</h2>')
-    .replace(/^### (.*$)/gm, '<h3 class="text-md font-bold my-2">$1</h3>')
-    // Handle bullet lists
-    .replace(/^\* (.*$)/gm, '<li class="my-1 ml-5 list-disc">$1</li>')
-    .replace(/^- (.*$)/gm, '<li class="my-1 ml-5 list-disc">$1</li>')
-    // Handle numbered lists
-    .replace(/^\d+\. (.*$)/gm, '<li class="my-1 ml-5 list-decimal">$1</li>')
-    // Handle blockquotes
-    .replace(/^> (.*$)/gm, '<blockquote class="border-l-4 border-gray-500 dark:border-gray-400 pl-4 my-3 italic">$1</blockquote>')
-    // Handle horizontal rule
-    .replace(/^---$/gm, '<hr class="my-3 border-t border-gray-300 dark:border-gray-700">')
-    // Handle links [text](url)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">$1</a>')
-    // Handle bold **text**
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // Handle italic *text*
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // Handle paragraphs (split by double newlines)
-    .split('\n\n').map(p => p.trim() ? `<p class="my-2">${p}</p>` : '').join('');
+  if (!content) return null;
 
-  // Return the processed content as dangerously set HTML
-  return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: processedContent }} />;
+  // Configure marked for robust parsing
+  marked.setOptions({
+    gfm: true,       // Enable GitHub Flavored Markdown
+    breaks: true,    // Convert single line breaks to <br>
+    pedantic: false  // Don't be too strict
+  });
+
+  const rawHtml = marked.parse(content);
+  return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: rawHtml as string }} />;
 };
 
 const MarkdownStyles = () => (
