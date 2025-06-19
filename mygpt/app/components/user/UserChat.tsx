@@ -8,10 +8,7 @@ import { BiLogoMeta } from 'react-icons/bi';
 import { TbRouter } from 'react-icons/tb';
 import { useTheme } from '~/context/themeContext';
 import type { FileAttachment } from '~/lib/database.types';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
-import type { Components } from 'react-markdown';
+import { renderMarkdownSafely, MarkdownStyles } from '~/lib/markdown';
 
 // Define interfaces
 interface User {
@@ -56,253 +53,6 @@ interface LoadingState {
   message: boolean;
   history: boolean;
 }
-
-// Optimized markdown components for Cloudflare Workers compatibility
-const markdownComponents: Components = {
-  code: ({ node, inline, className, children, ...props }) => {
-    const match = /language-(\w+)/.exec(className || '');
-    
-    if (inline) {
-      return (
-        <code
-          className="bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 rounded px-1 py-0.5 text-sm font-mono"
-          {...props}
-        >
-          {children}
-        </code>
-      );
-    }
-    
-    return (
-      <pre className="bg-gray-900 text-white p-4 rounded-lg overflow-x-auto my-4 font-mono text-sm">
-        <code className={className} {...props}>
-          {children}
-        </code>
-      </pre>
-    );
-  },
-  h1: ({ children }) => (
-    <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-white">
-      {children}
-    </h1>
-  ),
-  h2: ({ children }) => (
-    <h2 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-white">
-      {children}
-    </h2>
-  ),
-  h3: ({ children }) => (
-    <h3 className="text-lg font-bold mt-4 mb-3 text-gray-900 dark:text-white">
-      {children}
-    </h3>
-  ),
-  h4: ({ children }) => (
-    <h4 className="text-base font-bold mt-3 mb-2 text-gray-900 dark:text-white">
-      {children}
-    </h4>
-  ),
-  h5: ({ children }) => (
-    <h5 className="text-sm font-bold mt-2 mb-2 text-gray-900 dark:text-white">
-      {children}
-    </h5>
-  ),
-  h6: ({ children }) => (
-    <h6 className="text-xs font-bold mt-2 mb-1 text-gray-900 dark:text-white">
-      {children}
-    </h6>
-  ),
-  ul: ({ children }) => (
-    <ul className="list-disc pl-6 space-y-1 my-3">
-      {children}
-    </ul>
-  ),
-  ol: ({ children }) => (
-    <ol className="list-decimal pl-6 space-y-1 my-3">
-      {children}
-    </ol>
-  ),
-  li: ({ children }) => (
-    <li className="text-gray-700 dark:text-gray-300">
-      {children}
-    </li>
-  ),
-  blockquote: ({ children }) => (
-    <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-gray-50 dark:bg-gray-800 italic">
-      <div className="text-gray-600 dark:text-gray-400">
-        {children}
-      </div>
-    </blockquote>
-  ),
-  hr: () => (
-    <hr className="my-6 border-gray-300 dark:border-gray-600" />
-  ),
-  p: ({ children }) => (
-    <p className="my-3 leading-relaxed text-gray-700 dark:text-gray-300">
-      {children}
-    </p>
-  ),
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-500 hover:text-blue-700 underline"
-    >
-      {children}
-    </a>
-  ),
-  strong: ({ children }) => (
-    <strong className="font-bold">
-      {children}
-    </strong>
-  ),
-  em: ({ children }) => (
-    <em className="italic">
-      {children}
-    </em>
-  ),
-  table: ({ children }) => (
-    <div className="overflow-x-auto my-4">
-      <table className="min-w-full border border-gray-300 dark:border-gray-600">
-        {children}
-      </table>
-    </div>
-  ),
-  thead: ({ children }) => (
-    <thead className="bg-gray-50 dark:bg-gray-800">
-      {children}
-    </thead>
-  ),
-  tbody: ({ children }) => (
-    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-      {children}
-    </tbody>
-  ),
-  tr: ({ children }) => (
-    <tr className="hover:bg-gray-50 dark:hover:bg-gray-800">
-      {children}
-    </tr>
-  ),
-  th: ({ children }) => (
-    <th className="px-4 py-2 text-left font-medium text-gray-900 dark:text-white border-b border-gray-300 dark:border-gray-600">
-      {children}
-    </th>
-  ),
-  td: ({ children }) => (
-    <td className="px-4 py-2 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-      {children}
-    </td>
-  )
-};
-
-// Optimized markdown renderer using react-markdown
-const renderMarkdownContent = (content: string) => {
-  if (!content) return null;
-
-  return (
-    <ReactMarkdown
-      components={markdownComponents}
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
-      className="markdown-content space-y-2"
-    >
-      {content}
-    </ReactMarkdown>
-  );
-};
-
-const MarkdownStyles = () => (
-  <style dangerouslySetInnerHTML={{
-    __html: `
-      .markdown-content {
-          line-height: 1.6;
-          width: 100%;
-      }
-      
-      .hide-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-      }
-      
-      .hide-scrollbar::-webkit-scrollbar {
-          display: none;
-      }
-
-      .typing-animation span {
-          width: 5px;
-          height: 5px;
-          background-color: currentColor;
-          border-radius: 50%;
-          display: inline-block;
-          margin: 0 1px;
-          animation: typing 1.3s infinite ease-in-out;
-      }
-
-      .typing-animation span:nth-child(1) {
-          animation-delay: 0s;
-      }
-
-      .typing-animation span:nth-child(2) {
-          animation-delay: 0.2s;
-      }
-
-      .typing-animation span:nth-child(3) {
-          animation-delay: 0.4s;
-      }
-
-      @keyframes typing {
-          0%, 60%, 100% { transform: translateY(0); }
-          30% { transform: translateY(-5px); }
-      }
-
-      /* Syntax highlighting styles for rehype-highlight - optimized for Cloudflare Workers */
-      .hljs {
-          display: block;
-          overflow-x-auto;
-          padding: 0.5em;
-          background: #1e1e1e;
-          color: #dcdcdc;
-      }
-
-      .hljs-keyword,
-      .hljs-selector-tag,
-      .hljs-literal {
-          color: #569cd6;
-      }
-
-      .hljs-string {
-          color: #ce9178;
-      }
-
-      .hljs-comment {
-          color: #6a9955;
-      }
-
-      .hljs-number {
-          color: #b5cea8;
-      }
-
-      .hljs-function {
-          color: #dcdcaa;
-      }
-
-      .hljs-variable {
-          color: #9cdcfe;
-      }
-
-      .hljs-class {
-          color: #4ec9b0;
-      }
-
-      .hljs-operator {
-          color: #d4d4d4;
-      }
-
-      .hljs-punctuation {
-          color: #d4d4d4;
-      }
-  `}} />
-);
 
 const modelIcons: { [key: string]: JSX.Element } = {
   'openrouter/auto': <TbRouter className="text-yellow-500" size={18} />,
@@ -738,7 +488,7 @@ const UserChat: React.FC = () => {
                         </>
                       ) : (
                         <div className="markdown-content">
-                          {renderMarkdownContent(message.content)}
+                          {renderMarkdownSafely(message.content)}
                         </div>
                       )}
                       <div className={`text-xs mt-2 text-right ${message.role === 'user' ? 'text-blue-50/80' : 'text-gray-400/80'}`}>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
@@ -749,7 +499,7 @@ const UserChat: React.FC = () => {
                   <div className="flex justify-start">
                     <div className={`w-full max-w-3xl rounded-2xl px-4 py-2 assistant-message text-black dark:text-white rounded-bl-none`}>
                       <div className="markdown-content">
-                        {renderMarkdownContent(streamingMessage.content)}
+                        {renderMarkdownSafely(streamingMessage.content)}
                         {streamingMessage.isStreaming && (
                           <div className="typing-animation mt-2 inline-flex items-center text-gray-400">
                             <span></span>
